@@ -156,10 +156,12 @@ impl Unit {
 /// Perform a connection. Follows redirects.
 pub(crate) fn connect(
     mut unit: Unit,
+    //provided_stream: Option<Stream>,
     use_pooled: bool,
     mut body: SizedReader,
 ) -> Result<Response, Error> {
     let mut history = vec![];
+
     let mut resp = loop {
         let resp = connect_inner(&unit, use_pooled, body, &history)?;
 
@@ -250,10 +252,23 @@ fn connect_inner(
         .host_str()
         // This unwrap is ok because Request::parse_url() ensure there is always a host present.
         .unwrap();
+
+    let (stream, recycled) = connect_socket(unit, host, use_pooled)?;
+
+    connect_inner_with_stream(unit, recycled, body, history, stream)
+}
+
+/// provided stream may be recycled, which changes retry attempts
+fn connect_inner_with_stream(
+    unit: &Unit,
+    is_recycled: bool,
+    body: SizedReader,
+    history: &[Url],
+    mut stream: Stream
+) -> Result<Response, Error> {
+
     let url = &unit.url;
     let method = &unit.method;
-    // open socket
-    let (mut stream, is_recycled) = connect_socket(unit, host, use_pooled)?;
 
     if is_recycled {
         debug!("sending request (reused connection) {} {}", method, url);
