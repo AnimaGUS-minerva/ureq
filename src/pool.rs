@@ -92,7 +92,7 @@ impl ConnectionPool {
         self.max_idle_connections == 0 || self.max_idle_connections_per_host == 0
     }
 
-    /// How the unit::connect tries to get a pooled connection.
+    /// How the connect::connect tries to get a pooled connection.
     pub fn try_get_connection(&self, url: &Url, proxy: Option<Proxy>) -> Option<Stream> {
         let key = PoolKey::new(url, proxy);
         self.remove(&key)

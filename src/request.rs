@@ -6,7 +6,8 @@ use url::{form_urlencoded, ParseError, Url};
 use crate::body::Payload;
 use crate::header::{self, Header};
 use crate::middleware::MiddlewareNext;
-use crate::unit::{self, Unit};
+use crate::unit::Unit;
+use crate::connect;
 use crate::Response;
 use crate::{agent::Agent, error::Error};
 
@@ -137,7 +138,7 @@ impl Request {
                 deadline,
             );
 
-            unit::connect(unit, true, reader).map_err(|e| e.url(url.clone()))
+            connect::connect(unit, true, reader).map_err(|e| e.url(url.clone()))
         };
 
         let response = if !self.agent.state.middleware.is_empty() {

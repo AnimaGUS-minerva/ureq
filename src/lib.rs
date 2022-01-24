@@ -335,6 +335,8 @@ mod resolve;
 mod response;
 mod stream;
 mod unit;
+mod connect;
+mod minerva;
 
 // rustls is our default tls engine. If the feature is on, it will be
 // used for the shortcut calls the top of the crate (`ureq::get` etc).
@@ -398,6 +400,7 @@ pub use crate::request::{Request, RequestUrl};
 pub use crate::resolve::Resolver;
 pub use crate::response::Response;
 pub use crate::stream::{ReadWrite, TlsConnector};
+//pub use crate::minerva::brski_connect;
 
 // re-export
 #[cfg(feature = "cookies")]
