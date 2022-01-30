@@ -59,6 +59,10 @@ name = "smoke-test"
 name = "mbedtls-req"
 required-features = ["mbedtls"]
 
+[[example]]
+name = "bootstrap"
+required-features = ["mbedtls"]
+
 
 [[example]]
 name = "cureq"

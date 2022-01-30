@@ -6,9 +6,12 @@
 
 use log::debug;
 
+use std::net::TcpStream;
 use crate::unit::Unit;
 use crate::stream::Stream;
+use crate::agent::Agent;
 use crate::response::Response;
+use crate::request::Request;
 //use crate::body::{self, BodySize, Payload, SizedReader};
 use crate::body::{Payload, SizedReader};
 use crate::error::{Error, ErrorKind};
@@ -16,7 +19,7 @@ use crate::error::{Error, ErrorKind};
 use crate::connect::{connect_inner,can_propagate_authorization_on_redirect};
 
 /// Perform a connection. Follows redirects.
-pub(crate) fn brski_connect(
+pub(crate) fn brski_connect1(
     mut unit: Unit,
     _provided_stream: Stream,
     use_pooled: bool,
@@ -102,3 +105,18 @@ pub(crate) fn brski_connect(
     Ok(resp)
 }
 
+pub fn brski_connect(
+    _socket: TcpStream,
+    _agent:  Agent
+) -> Result<Request, Error> {
+
+    Err(ErrorKind::InvalidUrl
+                .msg(format!("code incomplete")))
+}
+
+//pub fn brski_request(
+//    _stream: Stream,
+//) -> Result<Request, Error> {
+//
+//    Err(ErrorKind::InvalidUrl.msg("request incomplete"))
+//}
