@@ -50,6 +50,22 @@ impl MbedTlsConnector {
     }
 }
 
+pub wrap_stream_with_connector(
+    connector: MbedTlsConnector,
+    sock:      TcpStream,
+) -> Result<Box<MbedTlsStream>, Error> {
+
+    let mut ctx = self.context.lock().unwrap();
+    match ctx.establish(tcp_stream, None) {
+        Err(_) => {
+            let io_err = io::Error::new(io::ErrorKind::InvalidData, MbedTlsError);
+            return Err(io_err.into());
+        }
+        Ok(()) => Ok(MbedTlsStream::new(self))
+    }
+}
+
+
 impl TlsConnector for MbedTlsConnector {
     fn connect(
         &self,
@@ -57,14 +73,7 @@ impl TlsConnector for MbedTlsConnector {
         tcp_stream: TcpStream,
     ) -> Result<Box<dyn ReadWrite>, Error> {
 
-        let mut ctx = self.context.lock().unwrap();
-        match ctx.establish(tcp_stream, None) {
-            Err(_) => {
-                let io_err = io::Error::new(io::ErrorKind::InvalidData, MbedTlsError);
-                return Err(io_err.into());
-            }
-            Ok(()) => Ok(MbedTlsStream::new(self))
-        }
+        wrap_stream_with_connector(self, tcp_stream)
     }
 }
 
