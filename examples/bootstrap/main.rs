@@ -1,9 +1,13 @@
 use std::io::{self, Read};
+//use std::io::Read;
 use std::sync::{Arc};
 use std::time::Duration;
+use std::net::TcpStream;
 use std::{env, error, fmt, result};
+use std::process;
 
 pub mod mbedtls_connector;
+use ureq::brski_connect;
 
 use log::{error, info};
 use ureq;
@@ -33,25 +37,27 @@ impl fmt::Display for Oops {
 
 type Result<T> = result::Result<T, Oops>;
 
-fn get(agent: &ureq::Agent, url: &str) -> Result<Vec<u8>> {
-    let response = agent.get(url).call()?;
-    let mut reader = response.into_reader();
-    let mut bytes = vec![];
-    reader.read_to_end(&mut bytes)?;
-    Ok(bytes)
-}
+// fn get(agent: &ureq::Agent, url: &str) -> Result<Vec<u8>> {
+//     let response = agent.get(url).call()?;
+//     let mut reader = response.into_reader();
+//     let mut bytes = vec![];
+//     reader.read_to_end(&mut bytes)?;
+//     Ok(bytes)
+// }
 
-fn get_and_write(agent: &ureq::Agent, url: &str) {
-    info!("🕷️ {}", url);
-    match get(agent, url) {
-        Ok(_) => info!("Good: ✔️ {}\n", url),
-        Err(e) => error!("Bad: ⚠️ {} {}\n", url, e),
-    }
-}
+// fn get_and_write(agent: &ureq::Agent, url: &str) {
+//     info!("🕷️ {}", url);
+//     match get(agent, url) {
+//         Ok(_) => info!("Good: ✔️ {}\n", url),
+//         Err(e) => error!("Bad: ⚠️ {} {}\n", url, e),
+//     }
+// }
 
 fn main() -> Result<()> {
     let _args = env::args();
     env_logger::init();
+
+    info!("bootstrap PID: {}", process::id());
 
     let agent = ureq::builder()
         .tls_connector(Arc::new(mbedtls_connector::MbedTlsConnector::new(mbedtls::ssl::config::AuthMode::None)))
@@ -59,14 +65,19 @@ fn main() -> Result<()> {
         .timeout(Duration::from_secs(20))
         .build();
 
-    get_and_write(&agent, "https://example.com/");
+    /* establish the connection */
+    let conn = TcpStream::connect("[::2]:8443").unwrap();
+
+    /* do the TLS bits */
+    let _stream = brski_connect(conn, agent).unwrap();
+
 
     Ok(())
 }
 
 /*
  * Local Variables:
- * compile-command: "cargo build --example brski-req --features=\"mbedtls\""
+ * compile-command: "cargo build --example bootstrap --features=\"mbedtls\""
  * mode: rust
  * End:
  */

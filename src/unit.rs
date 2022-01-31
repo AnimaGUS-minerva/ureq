@@ -26,7 +26,7 @@ use crate::header;
 /// *Internal API*
 #[derive(Clone)]
 pub(crate) struct Unit {
-    pub agent: Agent,
+    pub agent: Agent,            // replace with some kind of stream?
     pub method: String,
     pub url: Url,
     pub is_chunked: bool,

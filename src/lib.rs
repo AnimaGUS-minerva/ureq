@@ -400,7 +400,7 @@ pub use crate::request::{Request, RequestUrl};
 pub use crate::resolve::Resolver;
 pub use crate::response::Response;
 pub use crate::stream::{ReadWrite, TlsConnector};
-//pub use crate::minerva::brski_connect;
+pub use crate::minerva::brski_connect;
 
 // re-export
 #[cfg(feature = "cookies")]
