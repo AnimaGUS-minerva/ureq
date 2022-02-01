@@ -184,7 +184,7 @@ impl fmt::Debug for Stream {
 }
 
 impl Stream {
-    pub(crate) fn new(t: impl Inner + Send + Sync + 'static) -> Stream {
+    fn new(t: impl Inner + Send + Sync + 'static) -> Stream {
         Stream::logged_create(Stream {
             inner: BufReader::new(Box::new(t)),
         })
