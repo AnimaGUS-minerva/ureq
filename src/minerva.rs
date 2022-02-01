@@ -10,6 +10,8 @@ use std::net::TcpStream;
 use std::time::Duration;
 use std::thread::sleep;
 use url::Url;
+use std::sync::Arc;
+//use std::sync::Mutex;
 use crate::unit::Unit;
 use crate::stream::Stream;
 use crate::agent::Agent;
@@ -21,17 +23,18 @@ use crate::body::{Payload, SizedReader};
 use crate::error::{Error, ErrorKind};
 //use crate::agent::RedirectAuthHeaders;
 use crate::connect::{connect_inner,can_propagate_authorization_on_redirect};
-
+use crate::mbedtls::MbedTlsConnector;
 
 pub fn brski_connect(
+    connector: Arc<MbedTlsConnector>,
     sock:   TcpStream,
     agent:  Agent
 ) -> Result<Request, Error> {
 
     let tls_conf = &agent.config.tls_config;
-    let tls_stream = tls_conf.connect("", sock)?;
+    let _tls_stream = tls_conf.connect("", sock)?;
 
-    let _https_stream = Stream::new(tls_stream);
+    //let _https_stream = Stream::new(tls_stream);
     let body = Payload::Text("Hello", "utf-8".to_string());
 
     let _unit = Unit::new(&agent,

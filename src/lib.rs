@@ -348,6 +348,10 @@ mod rtls;
 #[cfg(feature = "native-tls")]
 mod ntls;
 
+// mbedtls is a feature that must be configured via the AgentBuilder.
+#[cfg(feature = "mbedtls")]
+mod mbedtls;
+
 // If we have rustls compiled, that is the default.
 #[cfg(feature = "tls")]
 pub(crate) fn default_tls_config() -> std::sync::Arc<dyn TlsConnector> {
