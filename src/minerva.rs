@@ -27,14 +27,15 @@ use crate::mbedtls::MbedTlsConnector;
 
 pub fn brski_connect(
     connector: Arc<MbedTlsConnector>,
+    agent:  Agent,
     sock:   TcpStream,
-    agent:  Agent
 ) -> Result<Request, Error> {
 
     let tls_conf = &agent.config.tls_config;
-    let _tls_stream = tls_conf.connect("", sock)?;
+    let tls_stream = tls_conf.connect("", sock)?;
+    //let tls_stream = connector.
 
-    //let _https_stream = Stream::new(tls_stream);
+    let https_stream = Stream::new(tls_stream);
     let body = Payload::Text("Hello", "utf-8".to_string());
 
     let _unit = Unit::new(&agent,
@@ -42,7 +43,12 @@ pub fn brski_connect(
                          &Url::parse("https://localhost/.well-known/brski/requestvoucher").unwrap(),
                          vec![Header::new("User-Agent", "Minerva Bootstrap")], /* headers */
                          &body.into_read(),
-                         None);
+                          None);
+
+    let certificates = tls_stream.as_ref().peer_cert().unwrap();
+    for cert in certificates {
+        println!("cert: {:?}", cert);
+    }
 
     sleep(Duration::new(20,0));
 

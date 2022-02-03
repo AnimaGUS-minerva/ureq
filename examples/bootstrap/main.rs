@@ -59,8 +59,9 @@ fn main() -> Result<()> {
 
     info!("bootstrap PID: {}", process::id());
 
+    let connector = Arc::new(mbedtls_connector::MbedTlsConnector::new(mbedtls::ssl::config::AuthMode::None));
     let agent = ureq::builder()
-        .tls_connector(Arc::new(mbedtls_connector::MbedTlsConnector::new(mbedtls::ssl::config::AuthMode::None)))
+        .tls_connector(connector.clone())
         .timeout_connect(Duration::from_secs(5))
         .timeout(Duration::from_secs(20))
         .build();
@@ -69,7 +70,7 @@ fn main() -> Result<()> {
     let conn = TcpStream::connect("[::2]:8443").unwrap();
 
     /* do the TLS bits */
-    let _stream = brski_connect(conn, agent).unwrap();
+    let _stream = brski_connect(connector, agent, conn).unwrap();
 
 
     Ok(())
