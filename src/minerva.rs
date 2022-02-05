@@ -13,16 +13,16 @@ use url::Url;
 use std::sync::Arc;
 //use std::sync::Mutex;
 use crate::unit::Unit;
-use crate::stream::Stream;
+//use crate::stream::Stream;
 use crate::agent::Agent;
-use crate::response::Response;
+//use crate::response::Response;
 use crate::request::Request;
 use crate::header::Header;
 //use crate::body::{self, BodySize, Payload, SizedReader};
-use crate::body::{Payload, SizedReader};
+use crate::body::{Payload};
 use crate::error::{Error, ErrorKind};
 //use crate::agent::RedirectAuthHeaders;
-use crate::connect::{connect_inner,can_propagate_authorization_on_redirect};
+//use crate::connect::{connect_inner,can_propagate_authorization_on_redirect};
 use crate::mbedtls::MbedTlsConnector;
 
 pub fn brski_connect(
@@ -35,7 +35,7 @@ pub fn brski_connect(
     let tls_stream = tls_conf.connect("", sock)?;
     //let tls_stream = connector.
 
-    let https_stream = Stream::new(tls_stream);
+    //let https_stream = Stream::new(tls_stream);
     let body = Payload::Text("Hello", "utf-8".to_string());
 
     let _unit = Unit::new(&agent,
@@ -45,10 +45,10 @@ pub fn brski_connect(
                          &body.into_read(),
                           None);
 
-    let certificates = tls_stream.as_ref().peer_cert().unwrap();
-    for cert in certificates {
-        println!("cert: {:?}", cert);
-    }
+    //let certificates = tls_stream.as_ref().peer_cert().unwrap();
+    //for cert in certificates {
+    //  println!("cert: {:?}", cert);
+    //}
 
     sleep(Duration::new(20,0));
 

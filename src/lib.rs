@@ -351,6 +351,8 @@ mod ntls;
 // mbedtls is a feature that must be configured via the AgentBuilder.
 #[cfg(feature = "mbedtls")]
 mod mbedtls;
+pub use crate::mbedtls::MbedTlsConnector;
+
 
 // If we have rustls compiled, that is the default.
 #[cfg(feature = "tls")]

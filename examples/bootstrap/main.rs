@@ -6,7 +6,7 @@ use std::net::TcpStream;
 use std::{env, error, fmt, result};
 use std::process;
 
-pub mod mbedtls_connector;
+use ureq::MbedTlsConnector;
 use ureq::brski_connect;
 
 use log::{error, info};
@@ -59,7 +59,7 @@ fn main() -> Result<()> {
 
     info!("bootstrap PID: {}", process::id());
 
-    let connector = Arc::new(mbedtls_connector::MbedTlsConnector::new(mbedtls::ssl::config::AuthMode::None));
+    let connector = Arc::new(MbedTlsConnector::new(mbedtls::ssl::config::AuthMode::None));
     let agent = ureq::builder()
         .tls_connector(connector.clone())
         .timeout_connect(Duration::from_secs(5))

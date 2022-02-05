@@ -1,6 +1,6 @@
 use std::fmt;
 use std::io;
-use ureq::{Error, ReadWrite, TlsConnector};
+use crate::{Error, ReadWrite, TlsConnector};
 
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
@@ -53,28 +53,28 @@ impl MbedTlsConnector {
 }
 
 pub fn wrap_stream_with_connector(
-    connector: MbedTlsConnector,
+    mtc:       &MbedTlsConnector,
     sock:      TcpStream,
 ) -> Result<Box<MbedTlsStream>, Error> {
 
-    let mut ctx = self.context.lock().unwrap();
-    match ctx.establish(tcp_stream, None) {
+    let mut ctx = mtc.context.lock().unwrap();
+    match ctx.establish(sock, None) {
         Err(_) => {
             let io_err = io::Error::new(io::ErrorKind::InvalidData, MbedTlsError);
             return Err(io_err.into());
         }
-        Ok(()) => Ok(MbedTlsStream::new(self))
+        Ok(()) => Ok(MbedTlsStream::new(mtc))
     }
 }
 
 
 impl TlsConnector for MbedTlsConnector {
     fn connect(&self, _dns_name: &str, tcp_stream: TcpStream) -> Result<Box<dyn ReadWrite>, Error> {
-        wrap_stream_with_connector(self, tcp_stream)
+        Ok(wrap_stream_with_connector(self, tcp_stream).unwrap())
     }
 }
 
-struct MbedTlsStream {
+pub struct MbedTlsStream {
     context: Arc<Mutex<Context>>, //tcp_stream: TcpStream,
 }
 
