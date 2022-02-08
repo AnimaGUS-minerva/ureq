@@ -24,6 +24,7 @@ use crate::error::{Error, ErrorKind};
 //use crate::agent::RedirectAuthHeaders;
 //use crate::connect::{connect_inner,can_propagate_authorization_on_redirect};
 use crate::mbedtls::MbedTlsConnector;
+use crate::mbedtls::wrap_stream_with_connector;
 
 pub fn brski_connect(
     connector: Arc<MbedTlsConnector>,
@@ -31,9 +32,12 @@ pub fn brski_connect(
     sock:   TcpStream,
 ) -> Result<Request, Error> {
 
-    let tls_conf = &agent.config.tls_config;
-    let tls_stream = tls_conf.connect("", sock)?;
-    //let tls_stream = connector.
+    //let tls_conf = &agent.config.tls_config;
+    //let tls_stream = tls_conf.connect("", sock)?;
+
+    // or can we use connect??
+    let mbedtls_stream = wrap_stream_with_connector(&connector,
+                                                    sock).unwrap();
 
     //let https_stream = Stream::new(tls_stream);
     let body = Payload::Text("Hello", "utf-8".to_string());
@@ -45,10 +49,16 @@ pub fn brski_connect(
                          &body.into_read(),
                           None);
 
-    //let certificates = tls_stream.as_ref().peer_cert().unwrap();
-    //for cert in certificates {
-    //  println!("cert: {:?}", cert);
-    //}
+    {
+        let mbedtls_context    = mbedtls_stream.context.lock().unwrap();
+        let certificate_return = mbedtls_context.peer_cert().unwrap();
+
+        if let Some(certificates) = certificate_return {
+            for cert in certificates {
+                println!("cert: {:?}", cert);
+            }
+        }
+    }
 
     sleep(Duration::new(20,0));
 

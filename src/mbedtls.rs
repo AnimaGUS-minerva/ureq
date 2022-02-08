@@ -14,7 +14,7 @@ fn entropy_new() -> mbedtls::rng::OsEntropy {
 }
 
 pub struct MbedTlsConnector {
-    context: Arc<Mutex<Context>>,
+    pub context: Arc<Mutex<Context>>,
 }
 
 #[derive(Debug)]
@@ -75,7 +75,7 @@ impl TlsConnector for MbedTlsConnector {
 }
 
 pub struct MbedTlsStream {
-    context: Arc<Mutex<Context>>, //tcp_stream: TcpStream,
+    pub context: Arc<Mutex<Context>>, //tcp_stream: TcpStream,
 }
 
 impl MbedTlsStream {
