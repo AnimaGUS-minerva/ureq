@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{env, error, fmt, result};
 
-pub mod mbedtls_connector;
+use ureq::MbedTlsConnector;
 
 use log::{error, info};
 use ureq;
@@ -54,7 +54,7 @@ fn main() -> Result<()> {
     env_logger::init();
 
     let agent = ureq::builder()
-        .tls_connector(Arc::new(mbedtls_connector::MbedTlsConnector::new(
+        .tls_connector(Arc::new(MbedTlsConnector::new(
             mbedtls::ssl::config::AuthMode::None,
         )))
         .timeout_connect(Duration::from_secs(5))
