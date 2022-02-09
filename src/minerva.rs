@@ -49,18 +49,28 @@ pub fn brski_connect(
                          &body.into_read(),
                           None);
 
-    {
-        let mbedtls_context    = mbedtls_stream.context.lock().unwrap();
-        let certificate_return = mbedtls_context.peer_cert().unwrap();
+    let mbedtls_context    = mbedtls_stream.context.lock().unwrap();
+    let certificate_list   = mbedtls_context.peer_cert().unwrap();
+    //let mut num = 0;
+    let mut cert1: Option<mbedtls::alloc::Box<mbedtls::x509::Certificate>> = None;
 
-        if let Some(certificates) = certificate_return {
-            for cert in certificates {
-                println!("cert: {:?}", cert);
+    if let Some(certificates) = certificate_list {
+        // only use first certificate returned
+        for cert in certificates {
+            match cert1 {
+                None => { cert1 = Some(cert.clone()) },
+                _ => {}
             }
+            //println!("[{}] cert: {:?}", num, cert.clone());
+            //num = num + 1;
         }
+    } else {
+        return Err(ErrorKind::InvalidUrl
+                   .msg(format!("no certificate found")));
     }
 
-    sleep(Duration::new(20,0));
+    //sleep(Duration::new(20,0));
+    println!("cert1: {:?}", cert1);
 
 
     Err(ErrorKind::InvalidUrl
