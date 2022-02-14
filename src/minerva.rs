@@ -26,6 +26,49 @@ use crate::error::{Error, ErrorKind};
 use crate::mbedtls::MbedTlsConnector;
 use crate::mbedtls::wrap_stream_with_connector;
 
+use minerva_voucher::{Voucher, attr::*, SignatureAlgorithm, Sign};
+
+static KEY_PEM_F2_00_02: &[u8] = core::include_bytes!(
+    concat!(env!("CARGO_MANIFEST_DIR"), "/data/00-D0-E5-F2-00-02/key.pem"));
+
+use std::io::{self, Cursor, Write};
+
+pub fn asn1_signature_from(sig: &[u8]) -> io::Result<Vec<u8>> {
+    let sig_len = sig.len();
+    let half = sig_len / 2;
+    let h = half as u8;
+
+    let mut asn1 = vec![0u8; sig_len + 8];
+    let mut writer = Cursor::new(&mut asn1[..]);
+    writer.write(&[48, 2 * h + 6, 2, h + 1, 0])?;
+    writer.write(&sig[..half])?; // r
+    writer.write(&[2, h + 1, 0])?;
+    writer.write(&sig[half..])?; // s
+
+    Ok(asn1)
+}
+
+pub fn is_asn1_signature(sig: &[u8]) -> bool {
+    let sig_len = sig.len();
+    let seq_len = sig_len - 2;
+
+    let int1_pos = 2;
+    let int1_len = sig.get(int1_pos + 1);
+    if int1_len.is_none() { return false; }
+    let int1_len = *int1_len.unwrap() as usize;
+
+    let int2_pos = int1_pos + 1 + int1_len + 1;
+    let int2_len = sig.get(int2_pos + 1);
+    if int2_len.is_none() { return false; }
+    let int2_len = *int2_len.unwrap() as usize;
+
+    sig[0] == 48 &&
+        sig[1] as usize == seq_len &&
+        sig[int1_pos] == 2 &&
+        sig[int2_pos] == 2 &&
+        int1_len + int2_len + 4 == seq_len
+}
+
 pub fn brski_connect(
     connector: Arc<MbedTlsConnector>,
     agent:  Agent,
@@ -69,9 +112,22 @@ pub fn brski_connect(
                    .msg(format!("no certificate found")));
     }
 
-    //sleep(Duration::new(20,0));
+    // now we have the peer certificate copied into cert1.
     println!("cert1: {:?}", cert1);
 
+    let mut vrq = Voucher::new_vrq();
+
+    vrq.set(Attr::Assertion(Assertion::Proximity))
+        .set(Attr::CreatedOn(1599086034))
+        .set(Attr::SerialNumber(b"00-D0-E5-F2-00-02".to_vec()));
+
+    // This is required when the `Sign` trait is backed by mbedtls v3.
+    #[cfg(feature = "v3")]
+    minerva_voucher::init_psa_crypto();
+
+    vrq.sign(KEY_PEM_F2_00_02, SignatureAlgorithm::ES256);
+
+    let _cbor = vrq.serialize().unwrap();
 
     Err(ErrorKind::InvalidUrl
                 .msg(format!("code incomplete")))
