@@ -45,6 +45,9 @@ native-tls = { version = "0.2", optional = true }
 flate2 = { version = "1.0.22", optional = true }
 brotli-decompressor = { version = "2.3.2", optional = true }
 mbedtls = { version = "0.8.1", optional = true }
+minerva-voucher = { optional = true, version = "0.6.1", path="/ssw/projects/trentonio/voucher" }
+mcu-if = { git = "https://github.com/AnimaGUS-minerva/mcu-if", rev = "6543b39" }
+
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -61,8 +64,7 @@ required-features = ["mbedtls"]
 
 [[example]]
 name = "bootstrap"
-required-features = ["mbedtls"]
-
+required-features = ["mbedtls", "minerva-voucher"]
 
 [[example]]
 name = "cureq"

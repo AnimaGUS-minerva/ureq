@@ -353,6 +353,7 @@ mod ntls;
 mod mbedtls;
 pub use crate::mbedtls::MbedTlsConnector;
 
+mod custom_voucher;
 
 // If we have rustls compiled, that is the default.
 #[cfg(feature = "tls")]

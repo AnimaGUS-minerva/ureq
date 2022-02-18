@@ -2,10 +2,47 @@
 
 use minerva_voucher::Voucher;
 pub use minerva_voucher::{VoucherError, Sign, Validate, SignatureAlgorithm};
-use super::utils;
 use std::convert::TryFrom;
+use std::io::{self, Cursor, Write};
 
 //
+
+pub fn asn1_signature_from(sig: &[u8]) -> io::Result<Vec<u8>> {
+    let sig_len = sig.len();
+    let half = sig_len / 2;
+    let h = half as u8;
+
+    let mut asn1 = vec![0u8; sig_len + 8];
+    let mut writer = Cursor::new(&mut asn1[..]);
+    writer.write(&[48, 2 * h + 6, 2, h + 1, 0])?;
+    writer.write(&sig[..half])?; // r
+    writer.write(&[2, h + 1, 0])?;
+    writer.write(&sig[half..])?; // s
+
+    Ok(asn1)
+}
+
+pub fn is_asn1_signature(sig: &[u8]) -> bool {
+    let sig_len = sig.len();
+    let seq_len = sig_len - 2;
+
+    let int1_pos = 2;
+    let int1_len = sig.get(int1_pos + 1);
+    if int1_len.is_none() { return false; }
+    let int1_len = *int1_len.unwrap() as usize;
+
+    let int2_pos = int1_pos + 1 + int1_len + 1;
+    let int2_len = sig.get(int2_pos + 1);
+    if int2_len.is_none() { return false; }
+    let int2_len = *int2_len.unwrap() as usize;
+
+    sig[0] == 48 &&
+        sig[1] as usize == seq_len &&
+        sig[int1_pos] == 2 &&
+        sig[int2_pos] == 2 &&
+        int1_len + int2_len + 4 == seq_len
+}
+
 
 pub struct CustomVoucher(Voucher);
 
@@ -84,10 +121,10 @@ fn validate_with_rust_mbedtls(
     if sig_alg.is_none() { return Ok(false); }
     let (signature, alg) = sig_alg.unwrap();
 
-    let ref signature = if utils::is_asn1_signature(signature) {
+    let ref signature = if is_asn1_signature(signature) {
         signature.to_vec()
     } else {
-        utils::asn1_signature_from(signature).or(Err(CustomError::Other(ERROR_ASN1_FAILED)))?
+        asn1_signature_from(signature).or(Err(CustomError::Other(ERROR_ASN1_FAILED)))?
     };
 
     let (ref hash, md_ty) = compute_digest(msg, alg)?;
