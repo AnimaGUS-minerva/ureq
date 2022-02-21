@@ -27,7 +27,7 @@ use crate::mbedtls::MbedTlsConnector;
 use crate::mbedtls::wrap_stream_with_connector;
 use crate::custom_voucher::{CustomVoucher as Voucher, VoucherError, Validate};
 
-use minerva_voucher::{attr::*, SignatureAlgorithm, Sign};
+//use minerva_voucher::{attr::*, SignatureAlgorithm, Sign};
 
 use std::convert::TryFrom;
 

@@ -1,6 +1,6 @@
 use minerva_voucher::Voucher;
 pub use minerva_voucher::{VoucherError, Sign, Validate, SignatureAlgorithm, attr::*};
-use super::utils;
+use crate::utils;
 use std::convert::TryFrom;
 
 //
@@ -40,7 +40,7 @@ use mbedtls::pk::{EcGroup, EcGroupId, Pk, ECDSA_MAX_LEN};
 use mbedtls::ecp::EcPoint;
 use mbedtls::x509::certificate::Certificate;
 use mbedtls::hash as mbedtls_hash;
-use super::support_rand::test_rng;
+use crate::support_rand::test_rng;
 
 //
 

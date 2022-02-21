@@ -336,7 +336,6 @@ mod response;
 mod stream;
 mod unit;
 mod connect;
-mod minerva;
 
 // rustls is our default tls engine. If the feature is on, it will be
 // used for the shortcut calls the top of the crate (`ureq::get` etc).
@@ -354,6 +353,8 @@ mod mbedtls;
 pub use crate::mbedtls::MbedTlsConnector;
 
 mod custom_voucher;
+mod utils;
+mod support_rand;
 
 // If we have rustls compiled, that is the default.
 #[cfg(feature = "tls")]
