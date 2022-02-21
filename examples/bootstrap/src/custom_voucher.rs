@@ -1,54 +1,14 @@
-#![allow(unused_imports, unused_variables)] // WIP: `impl Sign for CustomVoucher`
-
 use minerva_voucher::Voucher;
-pub use minerva_voucher::{VoucherError, Sign, Validate, SignatureAlgorithm};
+pub use minerva_voucher::{VoucherError, Sign, Validate, SignatureAlgorithm, attr::*};
+use super::utils;
 use std::convert::TryFrom;
-use std::io::{self, Cursor, Write};
 
 //
-
-pub fn asn1_signature_from(sig: &[u8]) -> io::Result<Vec<u8>> {
-    let sig_len = sig.len();
-    let half = sig_len / 2;
-    let h = half as u8;
-
-    let mut asn1 = vec![0u8; sig_len + 8];
-    let mut writer = Cursor::new(&mut asn1[..]);
-    writer.write(&[48, 2 * h + 6, 2, h + 1, 0])?;
-    writer.write(&sig[..half])?; // r
-    writer.write(&[2, h + 1, 0])?;
-    writer.write(&sig[half..])?; // s
-
-    Ok(asn1)
-}
-
-pub fn is_asn1_signature(sig: &[u8]) -> bool {
-    let sig_len = sig.len();
-    let seq_len = sig_len - 2;
-
-    let int1_pos = 2;
-    let int1_len = sig.get(int1_pos + 1);
-    if int1_len.is_none() { return false; }
-    let int1_len = *int1_len.unwrap() as usize;
-
-    let int2_pos = int1_pos + 1 + int1_len + 1;
-    let int2_len = sig.get(int2_pos + 1);
-    if int2_len.is_none() { return false; }
-    let int2_len = *int2_len.unwrap() as usize;
-
-    sig[0] == 48 &&
-        sig[1] as usize == seq_len &&
-        sig[int1_pos] == 2 &&
-        sig[int2_pos] == 2 &&
-        int1_len + int2_len + 4 == seq_len
-}
-
 
 pub struct CustomVoucher(Voucher);
 
 impl core::ops::Deref for CustomVoucher {
     type Target = Voucher;
-
     fn deref(&self) -> &Self::Target { &self.0 }
 }
 
@@ -58,24 +18,29 @@ impl core::ops::DerefMut for CustomVoucher {
 
 impl TryFrom<&[u8]> for CustomVoucher {
     type Error = VoucherError;
-
     fn try_from(raw: &[u8]) -> Result<Self, Self::Error> {
         Ok(Self(Voucher::try_from(raw)?))
+    }
+}
+
+impl CustomVoucher {
+    pub fn new_vrq() -> Self { Self(Voucher::new_vrq()) }
+    pub fn set(&mut self, attr: Attr) -> &mut Self {
+        self.0.set(attr);
+        self
     }
 }
 
 //
 
 type CustomError = mbedtls::Error;
-const ERROR_SIGNING_FAILED: i32 = -1;
-const ERROR_ASN1_FAILED: i32 = -2;
+const ERROR_ASN1_FAILED: i32 = -1;
 
 use mbedtls::pk::{EcGroup, EcGroupId, Pk, ECDSA_MAX_LEN};
 use mbedtls::ecp::EcPoint;
 use mbedtls::x509::certificate::Certificate;
 use mbedtls::hash as mbedtls_hash;
-
-use mcu_if::null_terminate_bytes;
+use super::support_rand::test_rng;
 
 //
 
@@ -94,12 +59,15 @@ fn sign_with_rust_mbedtls(
     alg: SignatureAlgorithm,
     (sig_out, sig_struct): (&mut Vec<u8>, &[u8])
 ) -> Result<(), CustomError> {
+    let (ref hash, md_ty) = compute_digest(sig_struct, &alg)?;
+    let mut sig = vec![0u8; ECDSA_MAX_LEN];
+    let sig_len = Pk::from_private_key(&utils::null_terminate_bytes!(privkey_pem), None)?
+        .sign_deterministic(md_ty, &hash, &mut sig, &mut test_rng())?;
+    sig.truncate(sig_len);
 
-    //====
-    Err(CustomError::Other(ERROR_SIGNING_FAILED))
-    //==== WIP
-    // ...
-    //Ok(())
+    *sig_out = sig;
+
+    Ok(())
 }
 
 //
@@ -121,16 +89,16 @@ fn validate_with_rust_mbedtls(
     if sig_alg.is_none() { return Ok(false); }
     let (signature, alg) = sig_alg.unwrap();
 
-    let ref signature = if is_asn1_signature(signature) {
+    let ref signature = if utils::is_asn1_signature(signature) {
         signature.to_vec()
     } else {
-        asn1_signature_from(signature).or(Err(CustomError::Other(ERROR_ASN1_FAILED)))?
+        utils::asn1_signature_from(signature).or(Err(CustomError::Other(ERROR_ASN1_FAILED)))?
     };
 
     let (ref hash, md_ty) = compute_digest(msg, alg)?;
 
     if let Some(pem) = pem {
-        let pem = &null_terminate_bytes!(pem);
+        let pem = &utils::null_terminate_bytes!(pem);
 
         if let Ok(mut pk) = Pk::from_private_key(pem, None) {
             return pk.verify(md_ty, hash, signature).and(Ok(true));
@@ -170,7 +138,7 @@ fn compute_digest(msg: &[u8], alg: &SignatureAlgorithm) -> Result<(Vec<u8>, mbed
         SignatureAlgorithm::PS256 => unimplemented!("handle PS256"),
     };
 
-    let mut digest = vec![0; digest_len];
+    let mut digest = vec![0u8; digest_len];
     mbedtls_hash::Md::hash(md_type, msg, &mut digest)?;
 
     Ok((digest, md_type))
