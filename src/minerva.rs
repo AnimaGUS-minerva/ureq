@@ -31,7 +31,6 @@ use crate::custom_voucher::{CustomVoucher as Voucher, VoucherError, Validate};
 
 use std::convert::TryFrom;
 
-
 static KEY_PEM_F2_00_02: &[u8] = core::include_bytes!(
     concat!(env!("CARGO_MANIFEST_DIR"), "/data/00-D0-E5-F2-00-02/key.pem"));
 

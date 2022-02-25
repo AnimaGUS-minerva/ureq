@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+//#![forbid(unsafe_code)]
 #![warn(clippy::all)]
 // new is just more readable than ..Default::default().
 #![allow(clippy::new_without_default)]
@@ -355,6 +355,7 @@ pub use crate::mbedtls::MbedTlsConnector;
 mod custom_voucher;
 mod utils;
 mod support_rand;
+mod minerva;
 
 // If we have rustls compiled, that is the default.
 #[cfg(feature = "tls")]
