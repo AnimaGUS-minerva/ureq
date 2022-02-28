@@ -42,8 +42,6 @@ use mbedtls::x509::certificate::Certificate;
 use mbedtls::hash as mbedtls_hash;
 use crate::support_rand::test_rng;
 
-//
-
 impl Sign for CustomVoucher {
     fn sign(&mut self, privkey_pem: &[u8], alg: SignatureAlgorithm) -> Result<&mut Self, VoucherError> {
         if let Err(_) = sign_with_rust_mbedtls(privkey_pem, alg, self.to_sign(alg)) {
