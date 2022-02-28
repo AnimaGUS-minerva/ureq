@@ -1,5 +1,5 @@
 use minerva_voucher::Voucher;
-pub use minerva_voucher::{VoucherError, Sign, Validate, SignatureAlgorithm, attr::*};
+use minerva_voucher::{VoucherError, Sign, Validate, SignatureAlgorithm, attr::*};
 use crate::utils;
 use std::convert::TryFrom;
 

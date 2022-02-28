@@ -25,8 +25,7 @@ use crate::error::{Error, ErrorKind};
 //use crate::connect::{connect_inner,can_propagate_authorization_on_redirect};
 use crate::mbedtls::MbedTlsConnector;
 use crate::mbedtls::wrap_stream_with_connector;
-use crate::custom_voucher::{CustomVoucher as Voucher, VoucherError, Validate};
-
+use crate::custom_voucher::{CustomVoucher as Voucher};
 use minerva_voucher::{attr::*, SignatureAlgorithm, Sign};
 
 use std::convert::TryFrom;
