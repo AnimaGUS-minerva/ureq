@@ -89,8 +89,8 @@ pub fn brski_connect(
         .set(Attr::SerialNumber(b"00-D0-E5-F2-00-02".to_vec()));
 
     // This is required when the `Sign` trait is backed by mbedtls v3.
-    #[cfg(feature = "v3")]
-    minerva_voucher::init_psa_crypto();
+    #[cfg(feature = "minerva-mbedtls")]
+    init_psa_crypto();
 
     vrq.sign(KEY_PEM_F2_00_02, SignatureAlgorithm::ES256);
 
@@ -106,3 +106,11 @@ pub fn brski_connect(
 //
 //    Err(ErrorKind::InvalidUrl.msg("request incomplete"))
 //}
+
+#[cfg(feature = "minerva-mbedtls")]
+pub fn init_psa_crypto() {
+    use minerva_mbedtls::psa_crypto;
+
+    psa_crypto::init().unwrap();
+    psa_crypto::initialized().unwrap();
+}
