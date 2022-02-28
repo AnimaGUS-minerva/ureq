@@ -45,9 +45,16 @@ native-tls = { version = "0.2", optional = true }
 flate2 = { version = "1.0.22", optional = true }
 brotli-decompressor = { version = "2.3.2", optional = true }
 mbedtls = { version = "0.8.1", optional = true }
-# minerva-voucher = { optional = true, version = "0.6.1", path="/ssw/projects/trentonio/voucher" }
-minerva-voucher = { version = "0.6.1", path="/ssw/projects/trentonio/voucher" }
-mcu-if = { git = "https://github.com/AnimaGUS-minerva/mcu-if", rev = "6543b39" }
+#====
+#minerva-voucher = { optional = true, version = "0.6.1", path="/ssw/projects/trentonio/voucher" }
+#minerva-voucher = { version = "0.6.1", path="/ssw/projects/trentonio/voucher" }
+#==== WIP
+minerva-mbedtls = { optional = true, git = "https://github.com/AnimaGUS-minerva/minerva-mbedtls", rev = "08437df", features = ["std"] }
+minerva-voucher = { optional = true, git = "https://github.com/AnimaGUS-minerva/voucher", rev = "2b2a827", default-features = false, features = ["std"] }
+#==== debug
+#minerva-mbedtls = { optional = true, path = "../minerva-mbedtls", features = ["std"] }
+#minerva-voucher = { optional = true, path = "../minerva-voucher", default-features = false, features = ["std"] }
+
 rand = "0.4"
 
 
@@ -66,7 +73,7 @@ required-features = ["mbedtls"]
 
 [[example]]
 name = "bootstrap"
-required-features = ["mbedtls", "minerva-voucher"]
+required-features = ["minerva-voucher"]
 
 [[example]]
 name = "cureq"

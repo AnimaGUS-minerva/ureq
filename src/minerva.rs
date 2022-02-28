@@ -27,12 +27,13 @@ use crate::mbedtls::MbedTlsConnector;
 use crate::mbedtls::wrap_stream_with_connector;
 use crate::custom_voucher::{CustomVoucher as Voucher, VoucherError, Validate};
 
-//use minerva_voucher::{attr::*, SignatureAlgorithm, Sign};
+use minerva_voucher::{attr::*, SignatureAlgorithm, Sign};
 
 use std::convert::TryFrom;
 
-static KEY_PEM_F2_00_02: &[u8] = core::include_bytes!(
-    concat!(env!("CARGO_MANIFEST_DIR"), "/data/00-D0-E5-F2-00-02/key.pem"));
+//static KEY_PEM_F2_00_02: &[u8] = core::include_bytes!(
+//    concat!(env!("CARGO_MANIFEST_DIR"), "/data/00-D0-E5-F2-00-02/key.pem"));
+static KEY_PEM_F2_00_02: &[u8] = &[0u8]; // dummy
 
 use std::io::{self, Cursor, Write};
 
