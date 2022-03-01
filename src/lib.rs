@@ -595,4 +595,33 @@ mod tests {
         let e = ErrorKind::Dns;
         assert_eq!(result.unwrap_err().kind(), e);
     }
+
+    #[test]
+    #[cfg(feature = "mbedtls")]
+    fn backend_rust_mbedtls() {
+        use crate::custom_voucher::{CustomVoucher as Voucher};
+        use minerva_voucher::{attr::*, SignatureAlgorithm, Sign};
+
+        static KEY_PEM_F2_00_02: &[u8] = &[0u8]; // dummy
+
+        let mut vrq = Voucher::new_vrq();
+        vrq.set(Attr::Assertion(Assertion::Proximity))
+            .set(Attr::CreatedOn(1599086034))
+            .set(Attr::SerialNumber(b"00-D0-E5-F2-00-02".to_vec()));
+
+        assert!(vrq.sign(KEY_PEM_F2_00_02, SignatureAlgorithm::ES256)
+            .is_err()); // using dummy key
+    }
+
+    #[test]
+    #[cfg(feature = "minerva-mbedtls")]
+    fn backend_minerva_mbedtls() {
+        use crate::minerva::init_psa_crypto;
+
+        // This is required when the `Sign` trait is backed by mbedtls v3.
+        init_psa_crypto();
+
+        // WIP
+        // ...
+    }
 }
