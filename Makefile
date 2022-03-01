@@ -4,7 +4,7 @@ bootstrap:
 	cargo build --example bootstrap --features="mbedtls minerva-voucher"
 
 bootstrap-with-minerva-mbedtls:
-	cargo build --example bootstrap --features="minerva-mbedtls minerva-voucher"
+	cargo build --example bootstrap --features="minerva-mbedtls minerva-voucher-mbedtls-backend"
 
 test:
 	make bootstrap

@@ -354,7 +354,10 @@ pub use crate::mbedtls::MbedTlsConnector;
 
 mod custom_voucher;
 mod utils;
+
+#[cfg(feature = "mbedtls")]
 mod support_rand;
+
 mod minerva;
 
 // If we have rustls compiled, that is the default.

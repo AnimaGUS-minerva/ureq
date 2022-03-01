@@ -1,5 +1,4 @@
-use minerva_voucher::Voucher;
-use minerva_voucher::{VoucherError, Sign, Validate, SignatureAlgorithm, attr::*};
+use minerva_voucher::{Voucher, VoucherError, Sign, Validate, SignatureAlgorithm, attr::*};
 use crate::utils;
 use std::convert::TryFrom;
 
@@ -61,10 +60,8 @@ use rust_mbedtls_backend as backend;
 #[cfg(feature = "minerva-mbedtls")]
 mod minerva_mbedtls_backend {
     use super::*;
-
-    // WIP - port
-    //  https://github.com/AnimaGUS-minerva/voucher/blob/master/src/sign.rs
-    //  https://github.com/AnimaGUS-minerva/voucher/blob/master/src/validate.rs
+    pub use minerva_voucher::sign::sign_with_mbedtls as sign;
+    pub use minerva_voucher::validate::validate_with_mbedtls as validate;
 }
 
 #[cfg(feature = "mbedtls")]
