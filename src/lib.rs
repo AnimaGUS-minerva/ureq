@@ -350,7 +350,13 @@ mod ntls;
 // mbedtls is a feature that must be configured via the AgentBuilder.
 #[cfg(feature = "mbedtls")]
 mod mbedtls;
+#[cfg(feature = "minerva-mbedtls")]
+mod mbedtls_minerva;
+
+#[cfg(feature = "mbedtls")]
 pub use crate::mbedtls::MbedTlsConnector;
+#[cfg(feature = "minerva-mbedtls")]
+pub use crate::mbedtls_minerva::MbedTlsConnector;
 
 mod custom_voucher;
 mod utils;
@@ -598,30 +604,33 @@ mod tests {
 
     #[test]
     #[cfg(feature = "mbedtls")]
-    fn backend_rust_mbedtls() {
-        use crate::custom_voucher::{CustomVoucher as Voucher};
-        use minerva_voucher::{attr::*, SignatureAlgorithm, Sign};
-
-        static KEY_PEM_F2_00_02: &[u8] = &[0u8]; // dummy
-
-        let mut vrq = Voucher::new_vrq();
-        vrq.set(Attr::Assertion(Assertion::Proximity))
-            .set(Attr::CreatedOn(1599086034))
-            .set(Attr::SerialNumber(b"00-D0-E5-F2-00-02".to_vec()));
-
-        assert!(vrq.sign(KEY_PEM_F2_00_02, SignatureAlgorithm::ES256)
-            .is_err()); // using dummy key
+    fn voucher_rust_mbedtls() {
+        voucher();
     }
 
     #[test]
     #[cfg(feature = "minerva-mbedtls")]
-    fn backend_minerva_mbedtls() {
+    fn voucher_minerva_mbedtls() {
         use crate::minerva::init_psa_crypto;
 
         // This is required when the `Sign` trait is backed by mbedtls v3.
         init_psa_crypto();
 
-        // WIP
-        // ...
+        voucher();
     }
+}
+
+fn voucher() {
+    use crate::custom_voucher::{CustomVoucher as Voucher};
+    use minerva_voucher::{attr::*, SignatureAlgorithm, Sign};
+
+    static KEY_PEM_F2_00_02: &[u8] = &[0u8]; // dummy
+
+    let mut vrq = Voucher::new_vrq();
+    vrq.set(Attr::Assertion(Assertion::Proximity))
+        .set(Attr::CreatedOn(1599086034))
+        .set(Attr::SerialNumber(b"00-D0-E5-F2-00-02".to_vec()));
+
+    assert!(vrq.sign(KEY_PEM_F2_00_02, SignatureAlgorithm::ES256)
+        .is_err()); // using dummy key
 }

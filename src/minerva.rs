@@ -23,8 +23,15 @@ use crate::body::{Payload};
 use crate::error::{Error, ErrorKind};
 //use crate::agent::RedirectAuthHeaders;
 //use crate::connect::{connect_inner,can_propagate_authorization_on_redirect};
-use crate::mbedtls::MbedTlsConnector;
-use crate::mbedtls::wrap_stream_with_connector;
+
+#[cfg(feature = "mbedtls")]
+use crate::mbedtls as self_mbedtls;
+#[cfg(feature = "minerva-mbedtls")]
+use crate::mbedtls_minerva as self_mbedtls;
+
+use self_mbedtls::MbedTlsConnector;
+use self_mbedtls::wrap_stream_with_connector;
+
 use crate::custom_voucher::{CustomVoucher as Voucher};
 use minerva_voucher::{attr::*, SignatureAlgorithm, Sign};
 
@@ -58,7 +65,8 @@ pub fn brski_connect(
                          vec![Header::new("User-Agent", "Minerva Bootstrap")], /* headers */
                          &body.into_read(),
                           None);
-
+#[cfg(feature = "mbedtls")]
+{ //--------
     let mbedtls_context    = mbedtls_stream.context.lock().unwrap();
     let certificate_list   = mbedtls_context.peer_cert().unwrap();
     //let mut num = 0;
@@ -81,7 +89,7 @@ pub fn brski_connect(
 
     // now we have the peer certificate copied into cert1.
     println!("cert1: {:?}", cert1);
-
+} //--------
     let mut vrq = Voucher::new_vrq();
 
     vrq.set(Attr::Assertion(Assertion::Proximity))
