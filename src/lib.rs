@@ -620,7 +620,7 @@ mod tests {
     }
 }
 
-fn voucher() {
+pub fn voucher() {
     use crate::custom_voucher::{CustomVoucher as Voucher};
     use minerva_voucher::{attr::*, SignatureAlgorithm, Sign};
 
