@@ -24,8 +24,6 @@ use crate::error::{Error, ErrorKind};
 //use crate::agent::RedirectAuthHeaders;
 //use crate::connect::{connect_inner,can_propagate_authorization_on_redirect};
 
-#[cfg(feature = "mbedtls")]
-use crate::mbedtls as self_mbedtls;
 #[cfg(feature = "minerva-mbedtls")]
 use crate::mbedtls_minerva as self_mbedtls;
 
@@ -102,7 +100,9 @@ pub fn brski_connect(
 
     vrq.sign(KEY_PEM_F2_00_02, SignatureAlgorithm::ES256);
 
-    let _cbor = vrq.serialize().unwrap();
+    let cbor = vrq.serialize().unwrap();
+
+    println!("voucher: {:x?}", cbor);
 
     Err(ErrorKind::InvalidUrl
                 .msg(format!("code incomplete")))

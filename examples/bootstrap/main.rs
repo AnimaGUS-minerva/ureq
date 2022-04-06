@@ -53,7 +53,6 @@ type Result<T> = result::Result<T, Oops>;
 //     }
 // }
 
-#[cfg(feature = "mbedtls")]
 fn main() -> Result<()> {
     let _args = env::args();
     env_logger::init();
@@ -75,10 +74,6 @@ fn main() -> Result<()> {
 
 
     Ok(())
-}
-#[cfg(feature = "minerva-mbedtls")]
-fn main() -> Result<()> {
-    Ok(()) // TODO
 }
 
 /*

@@ -353,8 +353,6 @@ mod mbedtls;
 #[cfg(feature = "minerva-mbedtls")]
 mod mbedtls_minerva;
 
-#[cfg(feature = "mbedtls")]
-pub use crate::mbedtls::MbedTlsConnector;
 #[cfg(feature = "minerva-mbedtls")]
 pub use crate::mbedtls_minerva::MbedTlsConnector;
 
