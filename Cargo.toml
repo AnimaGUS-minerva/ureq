@@ -45,7 +45,8 @@ rustls-native-certs = { version = "0.6", optional = true }
 native-tls = { version = "0.2", optional = true }
 flate2 = { version = "1.0.22", optional = true }
 brotli-decompressor = { version = "2.3.2", optional = true }
-mbedtls = { version = "0.8.1", optional = true }
+#mbedtls = { version = "0.8.1", optional = true }
+mbedtls = { version = "0.8.1" }
 #====
 #minerva-voucher = { optional = true, version = "0.6.1", path="/ssw/projects/trentonio/voucher" }
 #minerva-voucher = { version = "0.6.1", path="/ssw/projects/trentonio/voucher" }
@@ -53,8 +54,11 @@ mbedtls = { version = "0.8.1", optional = true }
 #minerva-mbedtls = { optional = true, git = "https://github.com/AnimaGUS-minerva/minerva-mbedtls", rev = "08437df", features = ["std"] }
 #minerva-voucher = { optional = true, git = "https://github.com/AnimaGUS-minerva/voucher", rev = "3761c2a", default-features = false, features = ["std"] }
 #==== debug
-minerva-mbedtls = { optional = true, path = "../minerva-mbedtls", features = ["std"] }
-minerva-voucher = { optional = true, path = "../minerva-voucher", default-features = false, features = ["std"] }
+#minerva-mbedtls = { optional = true, path = "../minerva-mbedtls", features = ["std"] }
+minerva-mbedtls = { path = "../minerva-mbedtls", features = ["std"] }
+#minerva-voucher = { optional = true, path = "../minerva-voucher", default-features = false, features = ["std"] }
+#minerva-voucher = { optional = true, path = "../minerva-voucher" }
+minerva-voucher = { path = "../minerva-voucher" }
 
 rand = "0.4"
 

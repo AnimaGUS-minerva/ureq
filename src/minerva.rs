@@ -24,7 +24,7 @@ use crate::error::{Error, ErrorKind};
 //use crate::agent::RedirectAuthHeaders;
 //use crate::connect::{connect_inner,can_propagate_authorization_on_redirect};
 
-#[cfg(feature = "minerva-mbedtls")]
+//#[cfg(feature = "minerva-mbedtls")]
 use crate::mbedtls_minerva as self_mbedtls;
 
 use self_mbedtls::MbedTlsConnector;

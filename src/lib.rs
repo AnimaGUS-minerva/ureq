@@ -350,10 +350,10 @@ mod ntls;
 // mbedtls is a feature that must be configured via the AgentBuilder.
 #[cfg(feature = "mbedtls")]
 mod mbedtls;
-#[cfg(feature = "minerva-mbedtls")]
+//#[cfg(feature = "minerva-mbedtls")]
 mod mbedtls_minerva;
 
-#[cfg(feature = "minerva-mbedtls")]
+//#[cfg(feature = "minerva-mbedtls")]
 pub use crate::mbedtls_minerva::MbedTlsConnector;
 
 mod custom_voucher;
