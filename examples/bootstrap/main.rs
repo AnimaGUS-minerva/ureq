@@ -78,7 +78,11 @@ fn main() -> Result<()> {
 }
 #[cfg(feature = "minerva-mbedtls")]
 fn main() -> Result<()> {
-    Ok(()) // TODO
+    println!("[bootstrap] main(): with `minerva-mbedtls`");
+
+    // ... use functions implemented in 'mbedtls_minerva.rs' here
+
+    Ok(())
 }
 
 /*
