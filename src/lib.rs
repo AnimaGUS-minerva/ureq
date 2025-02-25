@@ -1,4 +1,4 @@
-//#![forbid(unsafe_code)]
+#![forbid(unsafe_code)]
 #![warn(clippy::all)]
 // new is just more readable than ..Default::default().
 #![allow(clippy::new_without_default)]
@@ -6,23 +6,64 @@
 #![allow(clippy::match_like_matches_macro)]
 // we're not changing public api due to a lint.
 #![allow(clippy::upper_case_acronyms)]
+#![allow(clippy::result_large_err)]
+#![allow(clippy::only_used_in_recursion)]
+// println!("{var}") doesn't allow even the simplest expressions for var,
+// such as "{foo.var}" – hence this lint forces us to have inconsistent
+// formatting args. I prefer a lint that forbid "{var}".
+#![allow(clippy::uninlined_format_args)]
+// if we want a range, we will make a range.
+#![allow(clippy::manual_range_patterns)]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
+//!<div align="center">
+//!  <!-- Version -->
+//!  <a href="https://crates.io/crates/ureq">
+//!    <img src="https://img.shields.io/crates/v/ureq.svg?style=flat-square"
+//!    alt="Crates.io version" />
+//!  </a>
+//!  <!-- Docs -->
+//!  <a href="https://docs.rs/ureq">
+//!    <img src="https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square"
+//!      alt="docs.rs docs" />
+//!  </a>
+//!  <!-- Downloads -->
+//!  <a href="https://crates.io/crates/ureq">
+//!    <img src="https://img.shields.io/crates/d/ureq.svg?style=flat-square"
+//!      alt="Crates.io downloads" />
+//!  </a>
+//!</div>
+//!
 //! A simple, safe HTTP client.
+//!
+//! > [!NOTE]
+//! > * 2.12.x is MSRV 1.71
+//! > * 2.11.x is MSRV 1.67
+//! >
+//! > For both these lines, we will release patch version pinning dependencies as needed to
+//! > retain the MSRV. If we are bumping MSRV, that will require a minor version bump.
+//!
+//! > [!NOTE]
+//! > ureq version 2.11.0 was forced to bump MSRV from 1.63 -> 1.67. The problem is that the
+//! > `time` crate 0.3.20, the last 1.63 compatible version, stopped compiling with Rust
+//! > [1.80 and above](https://github.com/algesten/ureq/pull/878#issuecomment-2503176155).
+//! > To release a 2.x version that is possible to compile on the latest Rust we were
+//! > forced to bump MSRV.
 //!
 //! Ureq's first priority is being easy for you to use. It's great for
 //! anyone who wants a low-overhead HTTP client that just gets the job done. Works
 //! very well with HTTP APIs. Its features include cookies, JSON, HTTP proxies,
-//! HTTPS, and charset decoding.
+//! HTTPS, interoperability with the `http` crate, and charset decoding.
 //!
 //! Ureq is in pure Rust for safety and ease of understanding. It avoids using
 //! `unsafe` directly. It [uses blocking I/O][blocking] instead of async I/O, because that keeps
-//! the API simple and and keeps dependencies to a minimum. For TLS, ureq uses
-//! [rustls or native-tls](#tls).
+//! the API simple and keeps dependencies to a minimum. For TLS, ureq uses
+//! [rustls or native-tls](#https--tls--ssl).
 //!
-//! Version 2.0.0 was released recently and changed some APIs. See the [changelog] for details.
+//! See the [changelog] for details of recent releases.
 //!
 //! [blocking]: #blocking-io-for-simplicity
-//! [changelog]: https://github.com/algesten/ureq/blob/master/CHANGELOG.md
+//! [changelog]: https://github.com/algesten/ureq/blob/main/CHANGELOG.md
 //!
 //!
 //! ## Usage
@@ -76,7 +117,7 @@
 //! # fn main() -> std::result::Result<(), ureq::Error> {
 //! # ureq::is_test(true);
 //!   // Requires the `json` feature enabled.
-//!   let resp: String = ureq::post("http://myapi.example.com/ingest")
+//!   let resp: String = ureq::post("http://myapi.example.com/post/ingest")
 //!       .set("X-My-Header", "Secret")
 //!       .send_json(ureq::json!({
 //!           "name": "martin",
@@ -135,6 +176,8 @@
 //!   does nothing for `native-tls`.
 //! * `gzip` enables requests of gzip-compressed responses and decompresses them. This is enabled by default.
 //! * `brotli` enables requests brotli-compressed responses and decompresses them.
+//! * `http-interop` enables conversion methods to and from `http::Response` and `http::request::Builder` (v0.2).
+//! * `http` enables conversion methods to and from `http::Response` and `http::request::Builder` (v1.0).
 //!
 //! # Plain requests
 //!
@@ -199,14 +242,14 @@
 //!
 //! # Proxying
 //!
-//! ureq supports two kinds of proxies,  HTTP [`CONNECT`], [`SOCKS4`] and [`SOCKS5`], the former is
-//! always available while the latter must be enabled using the feature
+//! ureq supports two kinds of proxies,  [`HTTP`] ([`CONNECT`]), [`SOCKS4`] and [`SOCKS5`],
+//! the former is always available while the latter must be enabled using the feature
 //! `ureq = { version = "*", features = ["socks-proxy"] }`.
 //!
 //! Proxies settings are configured on an [Agent] (using [AgentBuilder]). All request sent
 //! through the agent will be proxied.
 //!
-//! ## Example using HTTP CONNECT
+//! ## Example using HTTP
 //!
 //! ```rust
 //! fn proxy_example_1() -> std::result::Result<(), ureq::Error> {
@@ -307,6 +350,7 @@
 //! [async-std]: https://github.com/async-rs/async-std#async-std
 //! [tokio]: https://github.com/tokio-rs/tokio#tokio
 //! [what-color]: https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/
+//! [`HTTP`]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Proxy_servers_and_tunneling#http_tunneling
 //! [`CONNECT`]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/CONNECT
 //! [`SOCKS4`]: https://en.wikipedia.org/wiki/SOCKS#SOCKS4
 //! [`SOCKS5`]: https://en.wikipedia.org/wiki/SOCKS#SOCKS5
@@ -323,8 +367,21 @@
 //! [actix-web](https://crates.io/crates/actix-web), and [hyper](https://crates.io/crates/hyper).
 //!
 
+/// Re-exported rustls crate
+///
+/// Use this re-export to always get a compatible version of `ClientConfig`.
+#[cfg(feature = "tls")]
+pub use rustls;
+
+/// Re-exported native-tls crate
+///
+/// Use this re-export to always get a compatible version of `TlsConnector`.
+#[cfg(feature = "native-tls")]
+pub use native_tls;
+
 mod agent;
 mod body;
+mod chunked;
 mod error;
 mod header;
 mod middleware;
@@ -335,7 +392,6 @@ mod resolve;
 mod response;
 mod stream;
 mod unit;
-mod connect;
 
 // rustls is our default tls engine. If the feature is on, it will be
 // used for the shortcut calls the top of the crate (`ureq::get` etc).
@@ -347,23 +403,6 @@ mod rtls;
 #[cfg(feature = "native-tls")]
 mod ntls;
 
-// mbedtls is a feature that must be configured via the AgentBuilder.
-#[cfg(feature = "mbedtls")]
-mod mbedtls;
-//#[cfg(feature = "minerva-mbedtls")]
-mod mbedtls_minerva;
-
-//#[cfg(feature = "minerva-mbedtls")]
-pub use crate::mbedtls_minerva::MbedTlsConnector;
-
-mod custom_voucher;
-mod utils;
-
-#[cfg(feature = "mbedtls")]
-mod support_rand;
-
-mod minerva;
-
 // If we have rustls compiled, that is the default.
 #[cfg(feature = "tls")]
 pub(crate) fn default_tls_config() -> std::sync::Arc<dyn TlsConnector> {
@@ -374,7 +413,6 @@ pub(crate) fn default_tls_config() -> std::sync::Arc<dyn TlsConnector> {
 // calls at the top of the crate (`ureq::get` etc).
 #[cfg(not(feature = "tls"))]
 pub(crate) fn default_tls_config() -> std::sync::Arc<dyn TlsConnector> {
-    use std::net::TcpStream;
     use std::sync::Arc;
 
     struct NoTlsConfig;
@@ -383,7 +421,7 @@ pub(crate) fn default_tls_config() -> std::sync::Arc<dyn TlsConnector> {
         fn connect(
             &self,
             _dns_name: &str,
-            _tcp_stream: TcpStream,
+            _io: Box<dyn ReadWrite>,
         ) -> Result<Box<dyn ReadWrite>, crate::error::Error> {
             Err(ErrorKind::UnknownScheme
                 .msg("cannot make HTTPS request because no TLS backend is configured"))
@@ -405,18 +443,24 @@ mod test;
 #[doc(hidden)]
 mod testserver;
 
+#[cfg(feature = "http-interop")]
+// 0.2 version dependency (deprecated)
+mod http_interop;
+
+#[cfg(feature = "http-crate")]
+// 1.0 version dependency.
+mod http_crate;
+
 pub use crate::agent::Agent;
 pub use crate::agent::AgentBuilder;
 pub use crate::agent::RedirectAuthHeaders;
 pub use crate::error::{Error, ErrorKind, OrAnyStatus, Transport};
-pub use crate::header::Header;
 pub use crate::middleware::{Middleware, MiddlewareNext};
 pub use crate::proxy::Proxy;
 pub use crate::request::{Request, RequestUrl};
 pub use crate::resolve::Resolver;
 pub use crate::response::Response;
 pub use crate::stream::{ReadWrite, TlsConnector};
-pub use crate::minerva::brski_connect;
 
 // re-export
 #[cfg(feature = "cookies")]
@@ -482,7 +526,7 @@ pub fn agent() -> Agent {
 /// This allows making requests with verbs that don't have a dedicated
 /// method.
 ///
-/// If you've got an already-parsed [Url], try [request_url][request_url].
+/// If you've got an already-parsed [`Url`], try [`request_url()`].
 ///
 /// ```
 /// # fn main() -> Result<(), ureq::Error> {
@@ -497,9 +541,9 @@ pub fn request(method: &str, path: &str) -> Request {
 }
 /// Make a request using an already-parsed [Url].
 ///
-/// This is useful if you've got a parsed Url from some other source, or if
+/// This is useful if you've got a parsed [`Url`] from some other source, or if
 /// you want to parse the URL and then modify it before making the request.
-/// If you'd just like to pass a String or a `&str`, try [request][request()].
+/// If you'd just like to pass a [`String`] or a [`&str`], try [`request()`].
 ///
 /// ```
 /// # fn main() -> Result<(), ureq::Error> {
@@ -508,7 +552,7 @@ pub fn request(method: &str, path: &str) -> Request {
 /// let agent = ureq::agent();
 ///
 /// let mut url: Url = "http://example.com/some-page".parse()?;
-/// url.set_path("/robots.txt");
+/// url.set_path("/get/robots.txt");
 /// let resp: ureq::Response = ureq::request_url("GET", &url)
 ///     .call()?;
 /// # Ok(())
@@ -558,8 +602,8 @@ mod tests {
 
         let resp = agent.get("http://www.google.com/").call().unwrap();
         assert_eq!(
-            "text/html; charset=ISO-8859-1",
-            resp.header("content-type").unwrap()
+            "text/html;charset=ISO-8859-1",
+            resp.header("content-type").unwrap().replace("; ", ";")
         );
         assert_eq!("text/html", resp.content_type());
     }
@@ -571,8 +615,8 @@ mod tests {
 
         let resp = agent.get("https://www.google.com/").call().unwrap();
         assert_eq!(
-            "text/html; charset=ISO-8859-1",
-            resp.header("content-type").unwrap()
+            "text/html;charset=ISO-8859-1",
+            resp.header("content-type").unwrap().replace("; ", ";")
         );
         assert_eq!("text/html", resp.content_type());
     }
@@ -587,8 +631,8 @@ mod tests {
 
         let resp = agent.get("https://www.google.com/").call().unwrap();
         assert_eq!(
-            "text/html; charset=ISO-8859-1",
-            resp.header("content-type").unwrap()
+            "text/html;charset=ISO-8859-1",
+            resp.header("content-type").unwrap().replace("; ", ";")
         );
         assert_eq!("text/html", resp.content_type());
     }
@@ -599,36 +643,4 @@ mod tests {
         let e = ErrorKind::Dns;
         assert_eq!(result.unwrap_err().kind(), e);
     }
-
-    #[test]
-    #[cfg(feature = "mbedtls")]
-    fn voucher_rust_mbedtls() {
-        voucher();
-    }
-
-    #[test]
-    #[cfg(feature = "minerva-mbedtls")]
-    fn voucher_minerva_mbedtls() {
-        use crate::minerva::init_psa_crypto;
-
-        // This is required when the `Sign` trait is backed by mbedtls v3.
-        init_psa_crypto();
-
-        voucher();
-    }
-}
-
-pub fn voucher() {
-    use crate::custom_voucher::{CustomVoucher as Voucher};
-    use minerva_voucher::{attr::*, SignatureAlgorithm, Sign};
-
-    static KEY_PEM_F2_00_02: &[u8] = &[0u8]; // dummy
-
-    let mut vrq = Voucher::new_vrq();
-    vrq.set(Attr::Assertion(Assertion::Proximity))
-        .set(Attr::CreatedOn(1599086034))
-        .set(Attr::SerialNumber(b"00-D0-E5-F2-00-02".to_vec()));
-
-    assert!(vrq.sign(KEY_PEM_F2_00_02, SignatureAlgorithm::ES256)
-        .is_err()); // using dummy key
 }

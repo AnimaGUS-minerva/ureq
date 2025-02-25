@@ -2,44 +2,46 @@ use log::debug;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::SocketAddr;
 use std::net::TcpStream;
+use std::ops::Div;
 use std::time::Duration;
 use std::time::Instant;
 use std::{fmt, io::Cursor};
 
-use chunked_transfer::Decoder as ChunkDecoder;
-
 #[cfg(feature = "socks-proxy")]
 use socks::{TargetAddr, ToTargetAddr};
 
+use crate::chunked::Decoder as ChunkDecoder;
+use crate::error::ErrorKind;
+use crate::pool::{PoolKey, PoolReturner};
 use crate::proxy::Proxy;
+use crate::unit::Unit;
+use crate::Response;
 use crate::{error::Error, proxy::Proto};
 
-use crate::error::ErrorKind;
-use crate::unit::Unit;
-
 /// Trait for things implementing [std::io::Read] + [std::io::Write]. Used in [TlsConnector].
-pub trait ReadWrite: Read + Write + Send + Sync + 'static {
+pub trait ReadWrite: Read + Write + Send + Sync + fmt::Debug + 'static {
     fn socket(&self) -> Option<&TcpStream>;
+}
+
+impl ReadWrite for TcpStream {
+    fn socket(&self) -> Option<&TcpStream> {
+        Some(self)
+    }
 }
 
 pub trait TlsConnector: Send + Sync {
     fn connect(
         &self,
         dns_name: &str,
-        tcp_stream: TcpStream,
+        io: Box<dyn ReadWrite>,
     ) -> Result<Box<dyn ReadWrite>, crate::error::Error>;
 }
 
 pub(crate) struct Stream {
-    inner: BufReader<Box<dyn Inner + Send + Sync + 'static>>,
-}
-
-trait Inner: Read + Write {
-    fn is_poolable(&self) -> bool;
-    fn socket(&self) -> Option<&TcpStream>;
-    fn as_write_vec(&self) -> &[u8] {
-        panic!("as_write_vec on non Test stream");
-    }
+    inner: BufReader<Box<dyn ReadWrite>>,
+    /// The remote address the stream is connected to.
+    pub(crate) remote_addr: SocketAddr,
+    pool_returner: PoolReturner,
 }
 
 impl<T: ReadWrite + ?Sized> ReadWrite for Box<T> {
@@ -48,60 +50,11 @@ impl<T: ReadWrite + ?Sized> ReadWrite for Box<T> {
     }
 }
 
-impl<T: ReadWrite> Inner for T {
-    fn is_poolable(&self) -> bool {
-        true
-    }
-
-    fn socket(&self) -> Option<&TcpStream> {
-        ReadWrite::socket(self)
-    }
-}
-
-impl Inner for TcpStream {
-    fn is_poolable(&self) -> bool {
-        true
-    }
-    fn socket(&self) -> Option<&TcpStream> {
-        Some(self)
-    }
-}
-
-struct TestStream(Box<dyn Read + Send + Sync>, Vec<u8>);
-
-impl Inner for TestStream {
-    fn is_poolable(&self) -> bool {
-        false
-    }
-    fn socket(&self) -> Option<&TcpStream> {
-        None
-    }
-    fn as_write_vec(&self) -> &[u8] {
-        &self.1
-    }
-}
-
-impl Read for TestStream {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.0.read(buf)
-    }
-}
-
-impl Write for TestStream {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.1.write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 // DeadlineStream wraps a stream such that read() will return an error
 // after the provided deadline, and sets timeouts on the underlying
 // TcpStream to ensure read() doesn't block beyond the deadline.
 // When the From trait is used to turn a DeadlineStream back into a
-// Stream (by PoolReturningRead), the timeouts are removed.
+// Stream (by PoolReturnRead), the timeouts are removed.
 pub(crate) struct DeadlineStream {
     stream: Stream,
     deadline: Option<Instant>,
@@ -110,6 +63,14 @@ pub(crate) struct DeadlineStream {
 impl DeadlineStream {
     pub(crate) fn new(stream: Stream, deadline: Option<Instant>) -> Self {
         DeadlineStream { stream, deadline }
+    }
+
+    pub(crate) fn inner_ref(&self) -> &Stream {
+        &self.stream
+    }
+
+    pub(crate) fn inner_mut(&mut self) -> &mut Stream {
+        &mut self.stream
     }
 }
 
@@ -146,7 +107,17 @@ impl BufRead for DeadlineStream {
 }
 
 impl Read for DeadlineStream {
+    #[allow(clippy::unused_io_amount)]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        // If the stream's BufReader has any buffered bytes, return those first.
+        // This avoids calling `fill_buf()` on DeadlineStream unnecessarily,
+        // since that call always does a syscall. This ensures DeadlineStream
+        // can pass through the efficiency we gain by using a BufReader in Stream.
+        if !self.stream.inner.buffer().is_empty() {
+            let n = self.stream.inner.buffer().read(buf)?;
+            self.stream.inner.consume(n);
+            return Ok(n);
+        }
         // All reads on a DeadlineStream use the BufRead impl. This ensures
         // that we have a chance to set the correct timeout before each recv
         // syscall.
@@ -174,19 +145,56 @@ pub(crate) fn io_err_timeout(error: String) -> io::Error {
     io::Error::new(io::ErrorKind::TimedOut, error)
 }
 
+#[derive(Debug)]
+pub(crate) struct ReadOnlyStream(Cursor<Vec<u8>>);
+
+impl ReadOnlyStream {
+    pub(crate) fn new(v: Vec<u8>) -> Self {
+        Self(Cursor::new(v))
+    }
+}
+
+impl Read for ReadOnlyStream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl std::io::Write for ReadOnlyStream {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl ReadWrite for ReadOnlyStream {
+    fn socket(&self) -> Option<&std::net::TcpStream> {
+        None
+    }
+}
+
 impl fmt::Debug for Stream {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.inner.get_ref().socket() {
-            Some(s) => write!(f, "{:?}", s),
+            Some(_) => write!(f, "Stream({:?})", self.inner.get_ref()),
             None => write!(f, "Stream(Test)"),
         }
     }
 }
 
 impl Stream {
-    fn new(t: impl Inner + Send + Sync + 'static) -> Stream {
+    pub(crate) fn new(
+        t: impl ReadWrite,
+        remote_addr: SocketAddr,
+        pool_returner: PoolReturner,
+    ) -> Stream {
         Stream::logged_create(Stream {
             inner: BufReader::new(Box::new(t)),
+            remote_addr,
+            pool_returner,
         })
     }
 
@@ -195,16 +203,8 @@ impl Stream {
         stream
     }
 
-    pub(crate) fn from_vec(v: Vec<u8>) -> Stream {
-        Stream::logged_create(Stream {
-            inner: BufReader::new(Box::new(TestStream(Box::new(Cursor::new(v)), vec![]))),
-        })
-    }
-
-    fn from_tcp_stream(t: TcpStream) -> Stream {
-        Stream::logged_create(Stream {
-            inner: BufReader::new(Box::new(t)),
-        })
+    pub(crate) fn buffer(&self) -> &[u8] {
+        self.inner.buffer()
     }
 
     // Check if the server has closed a stream by performing a one-byte
@@ -246,8 +246,16 @@ impl Stream {
             None => Ok(false),
         }
     }
-    pub fn is_poolable(&self) -> bool {
-        self.inner.get_ref().is_poolable()
+
+    pub(crate) fn set_unpoolable(&mut self) {
+        self.pool_returner = PoolReturner::none();
+    }
+
+    pub(crate) fn return_to_pool(mut self) -> io::Result<()> {
+        // ensure stream can be reused
+        self.reset()?;
+        self.pool_returner.clone().return_to_pool(self);
+        Ok(())
     }
 
     pub(crate) fn reset(&mut self) -> io::Result<()> {
@@ -271,11 +279,6 @@ impl Stream {
         } else {
             Ok(())
         }
-    }
-
-    #[cfg(test)]
-    pub fn as_write_vec(&self) -> &[u8] {
-        self.inner.get_ref().as_write_vec()
     }
 }
 
@@ -323,21 +326,29 @@ impl Drop for Stream {
 pub(crate) fn connect_http(unit: &Unit, hostname: &str) -> Result<Stream, Error> {
     //
     let port = unit.url.port().unwrap_or(80);
-
-    connect_host(unit, hostname, port).map(Stream::from_tcp_stream)
+    let pool_key = PoolKey::from_parts("http", hostname, port);
+    let pool_returner = PoolReturner::new(&unit.agent, pool_key);
+    connect_host(unit, hostname, port).map(|(t, r)| Stream::new(t, r, pool_returner))
 }
 
 pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error> {
     let port = unit.url.port().unwrap_or(443);
 
-    let sock = connect_host(unit, hostname, port)?;
+    let (sock, remote_addr) = connect_host(unit, hostname, port)?;
 
     let tls_conf = &unit.agent.config.tls_config;
-    let https_stream = tls_conf.connect(hostname, sock)?;
-    Ok(Stream::new(https_stream))
+    let https_stream = tls_conf.connect(hostname, Box::new(sock))?;
+    let pool_key = PoolKey::from_parts("https", hostname, port);
+    let pool_returner = PoolReturner::new(&unit.agent, pool_key);
+    Ok(Stream::new(https_stream, remote_addr, pool_returner))
 }
 
-pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<TcpStream, Error> {
+/// If successful, returns a `TcpStream` and the remote address it is connected to.
+pub(crate) fn connect_host(
+    unit: &Unit,
+    hostname: &str,
+    port: u16,
+) -> Result<(TcpStream, SocketAddr), Error> {
     let connect_deadline: Option<Instant> =
         if let Some(timeout_connect) = unit.agent.config.timeout_connect {
             Instant::now().checked_add(timeout_connect)
@@ -364,19 +375,28 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
     let proto = proxy.as_ref().map(|proxy| proxy.proto);
 
     let mut any_err = None;
-    let mut any_stream = None;
+    let mut any_stream_and_addr = None;
     // Find the first sock_addr that accepts a connection
+    let multiple_addrs = sock_addrs.len() > 1;
+
     for sock_addr in sock_addrs {
         // ensure connect timeout or overall timeout aren't yet hit.
         let timeout = match connect_deadline {
-            Some(deadline) => Some(time_until_deadline(deadline)?),
+            Some(deadline) => {
+                let mut deadline = time_until_deadline(deadline)?;
+                if multiple_addrs {
+                    deadline = deadline.div(2);
+                }
+                Some(deadline)
+            }
             None => None,
         };
 
         debug!("connecting to {} at {}", netloc, &sock_addr);
 
         // connect with a configured timeout.
-        let stream = if None != proto && Some(Proto::HTTPConnect) != proto {
+        #[allow(clippy::unnecessary_unwrap)]
+        let stream = if proto.is_some() && Some(Proto::HTTP) != proto {
             connect_socks(
                 unit,
                 proxy.clone().unwrap(),
@@ -389,19 +409,19 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
         } else if let Some(timeout) = timeout {
             TcpStream::connect_timeout(&sock_addr, timeout)
         } else {
-            TcpStream::connect(&sock_addr)
+            TcpStream::connect(sock_addr)
         };
 
         if let Ok(stream) = stream {
-            any_stream = Some(stream);
+            any_stream_and_addr = Some((stream, sock_addr));
             break;
         } else if let Err(err) = stream {
             any_err = Some(err);
         }
     }
 
-    let mut stream = if let Some(stream) = any_stream {
-        stream
+    let (mut stream, remote_addr) = if let Some(stream_and_addr) = any_stream_and_addr {
+        stream_and_addr
     } else if let Some(e) = any_err {
         return Err(ErrorKind::ConnectionFailed.msg("Connect error").src(e));
     } else {
@@ -422,27 +442,26 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
         stream.set_write_timeout(unit.agent.config.timeout_write)?;
     }
 
-    if proto == Some(Proto::HTTPConnect) {
+    if proto == Some(Proto::HTTP) && unit.url.scheme() == "https" {
         if let Some(ref proxy) = proxy {
-            write!(stream, "{}", proxy.connect(hostname, port)).unwrap();
+            write!(
+                stream,
+                "{}",
+                proxy.connect(hostname, port, &unit.agent.config.user_agent)
+            )
+            .unwrap();
             stream.flush()?;
 
-            let mut proxy_response = Vec::new();
-
-            loop {
-                let mut buf = vec![0; 256];
-                let total = stream.read(&mut buf)?;
-                proxy_response.append(&mut buf);
-                if total < 256 {
-                    break;
-                }
-            }
-
-            Proxy::verify_response(&proxy_response)?;
+            let s = stream.try_clone()?;
+            let pool_key = PoolKey::from_parts(unit.url.scheme(), hostname, port);
+            let pool_returner = PoolReturner::new(&unit.agent, pool_key);
+            let s = Stream::new(s, remote_addr, pool_returner);
+            let response = Response::do_from_stream(s, unit.clone())?;
+            Proxy::verify_response(&response)?;
         }
     }
 
-    Ok(stream)
+    Ok((stream, remote_addr))
 }
 
 #[cfg(feature = "socks-proxy")]
@@ -626,4 +645,74 @@ pub(crate) fn connect_test(unit: &Unit) -> Result<Stream, Error> {
 #[cfg(not(test))]
 pub(crate) fn connect_test(unit: &Unit) -> Result<Stream, Error> {
     Err(ErrorKind::UnknownScheme.msg(format!("unknown scheme '{}'", unit.url.scheme())))
+}
+
+#[cfg(test)]
+pub(crate) fn remote_addr_for_test() -> SocketAddr {
+    use std::net::{Ipv4Addr, SocketAddrV4};
+    SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        io::Read,
+        sync::{Arc, Mutex},
+    };
+
+    // Returns all zeroes to `.read()` and logs how many times it's called
+    struct ReadRecorder {
+        reads: Arc<Mutex<Vec<usize>>>,
+    }
+
+    impl Read for ReadRecorder {
+        fn read(&mut self, buf: &mut [u8]) -> std::result::Result<usize, std::io::Error> {
+            self.reads.lock().unwrap().push(buf.len());
+            buf.fill(0);
+            Ok(buf.len())
+        }
+    }
+
+    impl Write for ReadRecorder {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            unimplemented!()
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            unimplemented!()
+        }
+    }
+
+    impl fmt::Debug for ReadRecorder {
+        fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+            unimplemented!()
+        }
+    }
+
+    impl ReadWrite for ReadRecorder {
+        fn socket(&self) -> Option<&TcpStream> {
+            unimplemented!()
+        }
+    }
+
+    // Test that when a DeadlineStream wraps a Stream, and the user performs a series of
+    // tiny read_exacts, Stream's BufReader is used appropriately.
+    #[test]
+    fn test_deadline_stream_buffering() {
+        let reads = Arc::new(Mutex::new(vec![]));
+        let recorder = ReadRecorder {
+            reads: reads.clone(),
+        };
+        let stream = Stream::new(recorder, remote_addr_for_test(), PoolReturner::none());
+        let mut deadline_stream = DeadlineStream::new(stream, None);
+        let mut buf = [0u8; 1];
+        for _ in 0..8193 {
+            let _ = deadline_stream.read(&mut buf).unwrap();
+        }
+        let reads = reads.lock().unwrap();
+        assert_eq!(reads.len(), 2);
+        assert_eq!(reads[0], 8192);
+        assert_eq!(reads[1], 8192);
+    }
 }

@@ -1,3 +1,168 @@
+# Unreleased
+
+# 2.12.0
+
+  * Bump MSRV 1.67 -> 1.71 because rustls will soon adopt it (#883)
+  * Unpin rustls dep (>=0.23.19) (#883)
+
+# 2.11.0
+
+ * Fixes for changes to cargo-deny (#882)
+ * Pin rustls dep on 0.23.19 to keep MSRV 1.67 (#878)
+ * Bump MSRV 1.63 -> 1.67 due to time crate (#878)
+ * Re-export rustls (#813)
+
+# 2.10.1
+  * default `ureq` Rustls tls config updated to avoid panic for applications
+    that activate the default Rustls `aws-lc-rs` feature without setting
+    a process-wide crypto provider. `ureq` will now use `*ring*` in this
+    circumstance instead of panicking.
+
+# 2.10.0
+  * Bump MSRV 1.61 -> 1.63 due to rustls (#764)
+  * Update deps (only patch versions in Cargo.lock) (#763)
+  * Refork frewsxcv/rust-chunked-transfer to fix MIT/Apache2.0 license (#761)
+  * Enable http-crate feature for docs (#755)
+  * Update Rustls from 0.22 to 0.23 - this may be a breaking change if your
+    application depends on Rustls 0.22 (e.g. to provide a custom 
+    `rustls::ClientConfig` to `ureq`). See the [Rustls 0.23.0][rustls-0.23.0]
+    changelog for a list of breaking API changes (#753)
+  * Rustls dep to default to ring backend. If your project uses the
+    default `ureq` TLS config, or constructs its own `rustls::ClientConfig`
+    with `rustls::ClientConfig::builder()` you must ensure the Rustls 
+    `aws-lc-rs` feature is not activated, or set the process default 
+    cryptography provider before constructing any configs. See the Rustls
+    [CryptoProvider][CryptoProvider] docs for more information (#753)
+  * Remove direct dep rustls-webpki (#752)
+  * Fix doc Rustls does now support IP address certificates (#759)(#753)
+
+[rustls-0.23.0]: https://github.com/rustls/rustls/releases/tag/v%2F0.23.0
+[CryptoProvider]: https://docs.rs/rustls/latest/rustls/crypto/struct.CryptoProvider.html#using-the-per-process-default-cryptoprovider
+
+# 2.9.7
+
+  * Update deps (`base64` 0.22, `rustls` to 0.22.4 (#747, #748)
+  * Parse URL after middleware to enable changing it (#745)
+  * Tidy up code and fix compilation (#742, 743)
+
+# 2.9.6
+
+## Fixed
+
+  * `hootbin` is optional dep. Tests must be run with feature `testdeps` (#729)
+  * Exclude script files from cargo package (#728)
+
+# 2.9.5
+
+## Fixed
+
+  * Update deps (`cookie` 0.18, `cookie_store` 0.21, unpin `url`). (#722)
+
+# 2.9.4
+
+## Fixed
+
+  * MSRV 1.61 with CI tests
+
+# 2.9.3
+
+## Fixed
+
+  * docs.rs docs
+
+# 2.9.2
+
+## Added
+
+  * Replace dependency on httpbin.org for tests/doc-tests. (#703)
+
+## Fixed
+
+  * Remove Header struct that never should have been exported. (#696)
+  * Update deps (rustls 0.22) (#690)
+
+# 2.9.1
+
+## Fixed
+
+  * Unbreak feature `http-interop`. This feature is version locked to http crate 0.2
+  * New feature `http-crate`. This feature is for http crate 1.0
+  * New feature `proxy-from-env` to detect proxy settings for global Agent (ureq::get).
+
+# 2.9.0
+
+## Fixed
+  * Broken rustls dep (introduced new function in patch version) (#677)
+  * Doc and test fixes (#670, #673, #674)
+
+## Added
+  * Upgraded http dep to 1.0
+  * http_interop to not require utf-8 headers (#672)
+  * http_interop implement conversion for `http::request::Parts` (#669)
+
+# 2.8.0
+
+## Fixed
+  * Fix regression in IPv6 handling (#635)
+  * Read proxy response to \r\n\r\n (#620)
+
+## Added
+  * Auto-detect proxy from env vars (turned off by default) (#649)
+  * Conversion ureq::Response -> http::Response<Vec<u8>> (#638)
+  * cargo-deny CI action to disallow copy-left and duplicate deps (#661)
+
+# 2.7.1
+
+## Fixed
+ * Updated serde_json dependency constraint to be >=1.0.97 (#630)
+
+# 2.7.0
+
+## Fixed
+ * Pass User-Agent when connecting to proxy (#597)
+ * Proxy: Use CONNECT for HTTPS requests, but not HTTP requests (#587)
+ * Cookie headers are now cleared on redirect (#608)
+ * HTTP/1.0 responses with Content-Length no longer block until server closes
+   the socket. (#625)
+
+## Added
+ * Conversions to and from http::Response and http::request::Builder (#591)
+ * Updated to rustls 0.21 and rustls-webpki, which add support for IP address certificates (#601)
+ * Response::local_addr (#605)
+
+# 2.6.2
+
+## Fixed
+ * Non-empty connection pools were never dropped (#583)
+
+# 2.6.1
+
+## Fixed
+ * gzip: examine Content-Length header before removing (#578)
+
+# 2.6.0
+
+## Added
+ * Response::remote_addr() (#489)
+ * Request::query_pairs() - make query params from an Iterator of pairs (#519)
+
+## Fixed
+ * Gzip responses with chunked encoding now work with connection pooling (#560)
+ * Don't panic when rustls-native-certs errors (#564)
+ * Responses with zero-length body now work with connection pooling (#565)
+
+# 2.5.0
+ * Add tcp no_delay option (#465)
+ * Rework public TLS traits
+ * Warn if requests aren't sent (#490)
+ * Fixes for returning stream to pool (#509)
+ * Avoid extra syscalls when content is buffered (#508)
+ * Remove dep on sync_wrapper (#514, #528)
+ * Error instead of panic on large deadlines (#517)
+ * Make ReadWrite trait simpler (used in bespoke TLS impls) (#530)
+ * Buffer short response bodies (#531)
+ * Update cookie/cookie_store dep
+
 # 2.4.0
 
  * Enable `gzip` feature by default (#455)

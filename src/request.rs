@@ -3,13 +3,13 @@ use std::{fmt, time};
 
 use url::{form_urlencoded, ParseError, Url};
 
+use crate::agent::Agent;
 use crate::body::Payload;
+use crate::error::{Error, ErrorKind};
 use crate::header::{self, Header};
 use crate::middleware::MiddlewareNext;
-use crate::unit::Unit;
-use crate::connect;
+use crate::unit::{self, Unit};
 use crate::Response;
-use crate::{agent::Agent, error::Error};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -18,18 +18,19 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// ```
 /// # fn main() -> Result<(), ureq::Error> {
 /// # ureq::is_test(true);
-/// let response = ureq::get("http://example.com/form")
+/// let response = ureq::get("http://example.com/get")
 ///     .query("foo", "bar baz")  // add ?foo=bar+baz
 ///     .call()?;                 // run the request
 /// # Ok(())
 /// # }
 /// ```
 #[derive(Clone)]
+#[must_use = "Requests do nothing until consumed by `call()`"]
 pub struct Request {
     agent: Agent,
     method: String,
     url: String,
-    headers: Vec<Header>,
+    pub(crate) headers: Vec<Header>,
     timeout: Option<time::Duration>,
 }
 
@@ -114,7 +115,6 @@ impl Request {
         for h in &self.headers {
             h.validate()?;
         }
-        let url = self.parse_url()?;
 
         #[cfg(any(feature = "gzip", feature = "brotli"))]
         self.add_accept_encoding();
@@ -123,12 +123,21 @@ impl Request {
             None => None,
             Some(timeout) => {
                 let now = time::Instant::now();
-                Some(now.checked_add(timeout).unwrap())
+                match now.checked_add(timeout) {
+                    Some(dl) => Some(dl),
+                    None => {
+                        return Err(Error::new(
+                            ErrorKind::Io,
+                            Some("Request deadline overflowed".to_string()),
+                        ))
+                    }
+                }
             }
         };
 
         let request_fn = |req: Request| {
             let reader = payload.into_read();
+            let url = req.parse_url()?;
             let unit = Unit::new(
                 &req.agent,
                 &req.method,
@@ -138,7 +147,7 @@ impl Request {
                 deadline,
             );
 
-            connect::connect(unit, true, reader).map_err(|e| e.url(url.clone()))
+            unit::connect(unit, true, reader).map_err(|e| e.url(url))
         };
 
         let response = if !self.agent.state.middleware.is_empty() {
@@ -166,8 +175,6 @@ impl Request {
 
     /// Send data a json value.
     ///
-    /// Requires feature `ureq = { version = "*", features = ["json"] }`
-    ///
     /// The `Content-Length` header is implicitly set to the length of the serialized value.
     ///
     /// ```
@@ -188,7 +195,7 @@ impl Request {
         }
 
         let json_bytes = serde_json::to_vec(&data)
-            .expect("Failed to serialze data passed to send_json into JSON");
+            .expect("Failed to serialize data passed to send_json into JSON");
 
         self.do_call(Payload::Bytes(&json_bytes))
     }
@@ -375,6 +382,43 @@ impl Request {
     pub fn query(mut self, param: &str, value: &str) -> Self {
         if let Ok(mut url) = self.parse_url() {
             url.query_pairs_mut().append_pair(param, value);
+
+            // replace url
+            self.url = url.to_string();
+        }
+        self
+    }
+
+    /// Set multi query parameters.
+    ///
+    /// For example, to set `?format=json&dest=/login`
+    ///
+    /// ```
+    /// # fn main() -> Result<(), ureq::Error> {
+    /// # ureq::is_test(true);
+    ///
+    /// let query = vec![
+    ///     ("format", "json"),
+    ///     ("dest", "/login"),
+    /// ];
+    ///
+    /// let resp = ureq::get("http://httpbin.org/get")
+    ///     .query_pairs(query)
+    ///     .call()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn query_pairs<'a, P>(mut self, pairs: P) -> Self
+    where
+        P: IntoIterator<Item = (&'a str, &'a str)>,
+    {
+        if let Ok(mut url) = self.parse_url() {
+            {
+                let mut query_pairs = url.query_pairs_mut();
+                for (param, value) in pairs {
+                    query_pairs.append_pair(param, value);
+                }
+            }
 
             // replace url
             self.url = url.to_string();

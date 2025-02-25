@@ -1,6 +1,8 @@
+// This requires mbedtls crate 0.11.0 or newer due to
+// new Context<T> parameter
 use std::fmt;
 use std::io;
-use crate::{Error, ReadWrite, TlsConnector};
+use ureq::{Error, ReadWrite, TlsConnector};
 
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
@@ -14,7 +16,7 @@ fn entropy_new() -> mbedtls::rng::OsEntropy {
 }
 
 pub struct MbedTlsConnector {
-    pub context: Arc<Mutex<Context>>,
+    context: Arc<Mutex<Context<Box<dyn ReadWrite>>>>,
 }
 
 #[derive(Debug)]
@@ -52,30 +54,52 @@ impl MbedTlsConnector {
     }
 }
 
-pub fn wrap_stream_with_connector(
-    mtc:       &MbedTlsConnector,
-    sock:      TcpStream,
-) -> Result<Box<MbedTlsStream>, Error> {
-
-    let mut ctx = mtc.context.lock().unwrap();
-    match ctx.establish(sock, None) {
-        Err(_) => {
-            let io_err = io::Error::new(io::ErrorKind::InvalidData, MbedTlsError);
-            return Err(io_err.into());
-        }
-        Ok(()) => Ok(MbedTlsStream::new(mtc))
-    }
-}
-
-
 impl TlsConnector for MbedTlsConnector {
-    fn connect(&self, _dns_name: &str, tcp_stream: TcpStream) -> Result<Box<dyn ReadWrite>, Error> {
-        Ok(wrap_stream_with_connector(self, tcp_stream).unwrap())
+    fn connect(
+        &self,
+        _dns_name: &str,
+        io: Box<dyn ReadWrite>,
+    ) -> Result<Box<dyn ReadWrite>, Error> {
+        let mut ctx = self.context.lock().unwrap();
+        match ctx.establish(io, None) {
+            Err(e) => {
+                let io_err = io::Error::new(io::ErrorKind::InvalidData, MbedTlsError);
+                return Err(io_err.into());
+            }
+            Ok(()) => Ok(MbedTlsStream::new(self)),
+        }
     }
 }
 
-pub struct MbedTlsStream {
-    pub context: Arc<Mutex<Context>>, //tcp_stream: TcpStream,
+struct SyncIo(Mutex<Box<dyn ReadWrite>>);
+
+impl io::Read for SyncIo {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let mut lock = self.0.lock().unwrap();
+        lock.read(buf)
+    }
+}
+
+impl io::Write for SyncIo {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let mut lock = self.0.lock().unwrap();
+        lock.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        let mut lock = self.0.lock().unwrap();
+        lock.flush()
+    }
+}
+
+struct MbedTlsStream {
+    context: Arc<Mutex<Context<Box<dyn ReadWrite>>>>, //tcp_stream: TcpStream,
+}
+
+impl fmt::Debug for MbedTlsStream {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MbedTlsStream").finish()
+    }
 }
 
 impl MbedTlsStream {
@@ -116,7 +140,7 @@ impl io::Write for MbedTlsStream {
 
 /*
  * Local Variables:
- * compile-command: "cd ../.. && cargo build --features=\"mbedtls\""
+ * compile-command: "cd ../.. && cargo build --example mbedtls-req"
  * mode: rust
  * End:
  */

@@ -1,29 +1,30 @@
-#[cfg(all(feature = "json", any(feature = "tls", feature = "tls-native")))]
+#[cfg(all(feature = "json", feature = "tls"))]
+// test temporarily disabled because httpbin is down / we need to figure out
+// how to eliminate the external dependency.
+// #[test]
+// fn agent_set_header() {
+//     use serde::Deserialize;
+//     use std::collections::HashMap;
+
+//     #[derive(Deserialize, Debug)]
+//     struct HttpBin {
+//         headers: HashMap<String, String>,
+//     }
+
+//     let agent = ureq::Agent::new();
+//     let resp = agent
+//         .get("https://httpbin.org/get")
+//         .set("header", "value")
+//         .set("Connection", "close")
+//         .call()
+//         .unwrap();
+//     assert_eq!(resp.status(), 200);
+//     let json: HttpBin = resp.into_json().unwrap();
+//     // println!("{:?}", json);
+//     assert_eq!("value", json.headers.get("Header").unwrap());
+// }
 #[test]
-fn agent_set_header() {
-    use serde::Deserialize;
-    use std::collections::HashMap;
-
-    #[derive(Deserialize, Debug)]
-    struct HttpBin {
-        headers: HashMap<String, String>,
-    }
-
-    let agent = ureq::Agent::new();
-    let resp = agent
-        .get("https://httpbin.org/get")
-        .set("header", "value")
-        .set("Connection", "close")
-        .call()
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let json: HttpBin = resp.into_json().unwrap();
-    // println!("{:?}", json);
-    assert_eq!("value", json.headers.get("Header").unwrap());
-}
-
-#[test]
-#[cfg(any(feature = "tls", feature = "tls-native"))]
+#[cfg(feature = "tls")]
 // From here https://badssl.com/download/
 // Decrypt key with: openssl rsa -in ./badssl.com-client.pem
 fn tls_client_certificate() {
@@ -95,26 +96,19 @@ m0Wqhhi8/24Sy934t5Txgkfoltg8ahkx934WjP6WWRnSAu+cf+vW
     use ureq::OrAnyStatus;
 
     let certs = rustls_pemfile::certs(&mut BADSSL_CLIENT_CERT_PEM.as_bytes())
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let key = rustls_pemfile::private_key(&mut BADSSL_CLIENT_CERT_PEM.as_bytes())
         .unwrap()
-        .into_iter()
-        .map(rustls::Certificate)
-        .collect();
-    let key = rustls_pemfile::rsa_private_keys(&mut BADSSL_CLIENT_CERT_PEM.as_bytes()).unwrap()[0]
-        .clone();
+        .unwrap();
 
-    let mut root_store = rustls::RootCertStore::empty();
-    root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
-    }));
+    let root_store = rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.iter().cloned().collect(),
+    };
 
     let tls_config = rustls::ClientConfig::builder()
-        .with_safe_defaults()
         .with_root_certificates(root_store)
-        .with_single_cert(certs, rustls::PrivateKey(key))
+        .with_client_auth_cert(certs, key)
         .unwrap();
 
     let agent = ureq::builder()
@@ -148,4 +142,28 @@ m0Wqhhi8/24Sy934t5Txgkfoltg8ahkx934WjP6WWRnSAu+cf+vW
     let resp = resp.or_any_status().unwrap();
 
     assert!(resp.into_string().unwrap().len() > 10);
+}
+
+// This tests that IPv6 addresses as host names work.
+// This is a regression test for passing the host name to `rustls::ServerName::try_from(host_name)`
+#[test]
+#[cfg(feature = "tls")]
+fn ipv6_addr_in_dns_name() {
+    let root_store = rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+
+    let tls_config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    let agent = ureq::builder()
+        .tls_config(std::sync::Arc::new(tls_config))
+        .build();
+
+    let resp = agent.get("https://[2606:4700:4700::1111]/").call();
+
+    assert!(
+        !matches!(resp, Err(ureq::Error::Transport(ref t)) if t.kind() == ureq::ErrorKind::Dns)
+    );
 }

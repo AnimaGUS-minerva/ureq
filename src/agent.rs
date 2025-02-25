@@ -1,4 +1,5 @@
 use std::fmt;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
@@ -36,6 +37,7 @@ pub enum RedirectAuthHeaders {
 /// Accumulates options towards building an [Agent].
 pub struct AgentBuilder {
     config: AgentConfig,
+    try_proxy_from_env: bool,
     max_idle_connections: usize,
     max_idle_connections_per_host: usize,
     /// Cookies saved between requests.
@@ -46,25 +48,37 @@ pub struct AgentBuilder {
     middleware: Vec<Box<dyn Middleware>>,
 }
 
-/// Config as built by AgentBuilder and then static for the lifetime of the Agent.
 #[derive(Clone)]
+pub(crate) struct TlsConfig(Arc<dyn TlsConnector>);
+
+impl fmt::Debug for TlsConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TlsConfig").finish()
+    }
+}
+
+impl Deref for TlsConfig {
+    type Target = Arc<dyn TlsConnector>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// Config as built by AgentBuilder and then static for the lifetime of the Agent.
+#[derive(Clone, Debug)]
 pub(crate) struct AgentConfig {
     pub proxy: Option<Proxy>,
     pub timeout_connect: Option<Duration>,
     pub timeout_read: Option<Duration>,
     pub timeout_write: Option<Duration>,
     pub timeout: Option<Duration>,
+    pub https_only: bool,
     pub no_delay: bool,
     pub redirects: u32,
     pub redirect_auth_headers: RedirectAuthHeaders,
     pub user_agent: String,
-    pub tls_config: Arc<dyn TlsConnector>,
-}
-
-impl fmt::Debug for AgentConfig {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
-    }
+    pub tls_config: TlsConfig,
 }
 
 /// Agents keep state between requests.
@@ -79,11 +93,11 @@ impl fmt::Debug for AgentConfig {
 /// let mut agent = ureq::agent();
 ///
 /// agent
-///     .post("http://example.com/login")
+///     .post("http://example.com/post/login")
 ///     .call()?;
 ///
 /// let secret = agent
-///     .get("http://example.com/my-protected-page")
+///     .get("http://example.com/get/my-protected-page")
 ///     .call()?
 ///     .into_string()?;
 ///
@@ -159,7 +173,7 @@ impl Agent {
     /// let agent = ureq::agent();
     ///
     /// let mut url: Url = "http://example.com/some-page".parse()?;
-    /// url.set_path("/robots.txt");
+    /// url.set_path("/get/robots.txt");
     /// let resp: Response = agent
     ///     .request_url("GET", &url)
     ///     .call()?;
@@ -225,6 +239,10 @@ impl Agent {
     pub fn cookie_store(&self) -> CookieStoreGuard<'_> {
         self.state.cookie_tin.read_lock()
     }
+
+    pub(crate) fn weak_state(&self) -> std::sync::Weak<AgentState> {
+        Arc::downgrade(&self.state)
+    }
 }
 
 const DEFAULT_MAX_IDLE_CONNECTIONS: usize = 100;
@@ -239,12 +257,17 @@ impl AgentBuilder {
                 timeout_read: None,
                 timeout_write: None,
                 timeout: None,
+                https_only: false,
                 no_delay: true,
                 redirects: 5,
                 redirect_auth_headers: RedirectAuthHeaders::Never,
                 user_agent: format!("ureq/{}", env!("CARGO_PKG_VERSION")),
-                tls_config: crate::default_tls_config(),
+                tls_config: TlsConfig(crate::default_tls_config()),
             },
+            #[cfg(feature = "proxy-from-env")]
+            try_proxy_from_env: true,
+            #[cfg(not(feature = "proxy-from-env"))]
+            try_proxy_from_env: false,
             max_idle_connections: DEFAULT_MAX_IDLE_CONNECTIONS,
             max_idle_connections_per_host: DEFAULT_MAX_IDLE_CONNECTIONS_PER_HOST,
             resolver: StdResolver.into(),
@@ -259,7 +282,12 @@ impl AgentBuilder {
     // AgentBuilder to be used multiple times, except CookieStore does
     // not implement clone, so we have to give ownership to the newly
     // built Agent.
-    pub fn build(self) -> Agent {
+    pub fn build(mut self) -> Agent {
+        if self.config.proxy.is_none() && self.try_proxy_from_env {
+            if let Some(proxy) = Proxy::try_from_system() {
+                self.config.proxy = Some(proxy);
+            }
+        }
         Agent {
             config: Arc::new(self.config),
             state: Arc::new(AgentState {
@@ -288,8 +316,37 @@ impl AgentBuilder {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// Adding a proxy will disable `try_proxy_from_env`.
     pub fn proxy(mut self, proxy: Proxy) -> Self {
         self.config.proxy = Some(proxy);
+        self
+    }
+
+    /// Attempt to detect proxy settings from the environment, i.e. HTTP_PROXY
+    ///
+    /// The default is `false` without the `proxy-from-env` feature flag, i.e.
+    /// not detecting proxy from env, due to the potential security risk and to
+    /// maintain backward compatibility.
+    ///
+    /// If the `proxy` is set on the builder, this setting has no effect.
+    pub fn try_proxy_from_env(mut self, do_try: bool) -> Self {
+        self.try_proxy_from_env = do_try;
+        self
+    }
+
+    /// Enforce the client to only perform HTTPS requests.
+    /// This setting also makes the client refuse HTTPS to HTTP redirects.
+    /// Default is false
+    ///
+    /// Example:
+    /// ```
+    /// let agent = ureq::AgentBuilder::new()
+    ///     .https_only(true)
+    ///     .build();
+    /// ```
+    pub fn https_only(mut self, enforce: bool) -> Self {
+        self.config.https_only = enforce;
         self
     }
 
@@ -465,7 +522,7 @@ impl AgentBuilder {
     /// WARNING: for 307 and 308 redirects, this value is ignored for methods that have a body.
     /// You must handle 307 redirects yourself when sending a PUT, POST, PATCH, or DELETE request.
     ///
-    /// ```
+    /// ```no_run
     /// # fn main() -> Result<(), ureq::Error> {
     /// # ureq::is_test(true);
     /// let result = ureq::builder()
@@ -502,7 +559,7 @@ impl AgentBuilder {
     /// Defaults to `ureq/[VERSION]`. You can override the user-agent on an individual request by
     /// setting the `User-Agent` header when constructing the request.
     ///
-    /// ```
+    /// ```no_run
     /// # #[cfg(feature = "json")]
     /// # fn main() -> Result<(), ureq::Error> {
     /// # ureq::is_test(true);
@@ -538,17 +595,11 @@ impl AgentBuilder {
     /// # fn main() -> Result<(), ureq::Error> {
     /// # ureq::is_test(true);
     /// use std::sync::Arc;
-    /// let mut root_store = rustls::RootCertStore::empty();
-    /// root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-    ///     rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-    ///         ta.subject,
-    ///         ta.spki,
-    ///         ta.name_constraints,
-    ///     )
-    /// }));
+    /// let mut root_store = rustls::RootCertStore {
+    ///   roots: webpki_roots::TLS_SERVER_ROOTS.iter().cloned().collect(),
+    /// };
     ///
     /// let tls_config = rustls::ClientConfig::builder()
-    ///     .with_safe_defaults()
     ///     .with_root_certificates(root_store)
     ///     .with_no_client_auth();
     /// let agent = ureq::builder()
@@ -558,7 +609,7 @@ impl AgentBuilder {
     /// # }
     #[cfg(feature = "tls")]
     pub fn tls_config(mut self, tls_config: Arc<rustls::ClientConfig>) -> Self {
-        self.config.tls_config = Arc::new(tls_config);
+        self.config.tls_config = TlsConfig(Arc::new(tls_config));
         self
     }
 
@@ -583,7 +634,7 @@ impl AgentBuilder {
     /// # }
     /// ```
     pub fn tls_connector<T: TlsConnector + 'static>(mut self, tls_config: Arc<T>) -> Self {
-        self.config.tls_config = tls_config;
+        self.config.tls_config = TlsConfig(tls_config);
         self
     }
 
@@ -629,17 +680,6 @@ impl AgentBuilder {
     }
 }
 
-#[cfg(feature = "tls")]
-#[derive(Clone)]
-pub(crate) struct TLSClientConfig(pub(crate) Arc<rustls::ClientConfig>);
-
-#[cfg(feature = "tls")]
-impl fmt::Debug for TLSClientConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TLSClientConfig").finish()
-    }
-}
-
 impl fmt::Debug for AgentBuilder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AgentBuilder")
@@ -677,5 +717,26 @@ mod tests {
     fn agent_implements_send_and_sync() {
         let _agent: Box<dyn Send> = Box::new(AgentBuilder::new().build());
         let _agent: Box<dyn Sync> = Box::new(AgentBuilder::new().build());
+    }
+
+    #[test]
+    fn agent_config_debug() {
+        let agent = AgentBuilder::new().build();
+        let debug_format = format!("{:?}", agent);
+        assert!(debug_format.contains("Agent"));
+        assert!(debug_format.contains("config:"));
+        assert!(debug_format.contains("proxy:"));
+        assert!(debug_format.contains("timeout_connect:"));
+        assert!(debug_format.contains("timeout_read:"));
+        assert!(debug_format.contains("timeout_write:"));
+        assert!(debug_format.contains("timeout:"));
+        assert!(debug_format.contains("https_only:"));
+        assert!(debug_format.contains("no_delay:"));
+        assert!(debug_format.contains("redirects:"));
+        assert!(debug_format.contains("redirect_auth_headers:"));
+        assert!(debug_format.contains("user_agent:"));
+        assert!(debug_format.contains("tls_config:"));
+        assert!(debug_format.contains("state:"));
+        assert!(debug_format.contains("pool:"));
     }
 }

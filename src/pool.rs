@@ -3,34 +3,34 @@ use std::collections::{HashMap, VecDeque};
 use std::io::{self, Read};
 use std::sync::Mutex;
 
+use crate::agent::AgentState;
 use crate::stream::Stream;
-use crate::unit::Unit;
-use crate::Proxy;
+use crate::{Agent, Proxy};
 
 use log::debug;
 use url::Url;
 
 /// Holder of recycled connections.
 ///
-/// For each PoolKey (approximately hostname and port), there may be
+/// For each [`PoolKey`] (approximately hostname and port), there may be
 /// multiple connections stored in the `recycle` map. If so, they are stored in
 /// order from oldest at the front to freshest at the back.
 ///
-/// The `lru` VecDeque is a companion struct to `recycle`, and is used to keep
+/// The `lru` [`VecDeque`] is a companion struct to `recycle`, and is used to keep
 /// track of which connections to expire if the pool is full on the next insert.
-/// A given PoolKey can occur in lru multiple times. The first entry in lru for
-/// a key K represents the first entry in `recycle[K]`. The second entry in lru
+/// A given [`PoolKey`] can occur in `lru` multiple times. The first entry in `lru` for
+/// a key `K` represents the first entry in `recycle[K]`. The second entry in `lru`
 /// for `K` represents the second entry in `recycle[K]`, and so on. In other
-/// words, `lru` is ordered the same way as the VecDeque entries in `recycle`:
+/// words, `lru` is ordered the same way as the [`VecDeque`] entries in `recycle`:
 /// oldest at the front, freshest at the back. This allows keeping track of which
 /// host should have its connection dropped next.
 ///
 /// These invariants hold at the start and end of each method:
-///  - The length `lru` is equal to the sum of lengths of `recycle`'s VecDeques.
+///  - The length `lru` is equal to the sum of lengths of `recycle`'s [`VecDeque`]s.
 ///  - Each PoolKey exists the same number of times in `lru` as it has entries in `recycle`.
 ///  - If there is an entry in `recycle`, it has at least one element.
-///  - The length of `lru` is less than or equal to max_idle_connections.
-///  - The length of recycle[K] is less than or equal to max_idle_connections_per_host.
+///  - The length of `lru` is less than or equal to [`Self::max_idle_connections`].
+///  - The length of `recycle[K]` is less than or equal to [`Self::max_idle_connections_per_host`].
 ///
 /// *Internal API*
 pub(crate) struct ConnectionPool {
@@ -92,7 +92,7 @@ impl ConnectionPool {
         self.max_idle_connections == 0 || self.max_idle_connections_per_host == 0
     }
 
-    /// How the connect::connect tries to get a pooled connection.
+    /// How the unit::connect tries to get a pooled connection.
     pub fn try_get_connection(&self, url: &Url, proxy: Option<Proxy>) -> Option<Stream> {
         let key = PoolKey::new(url, proxy);
         self.remove(&key)
@@ -123,7 +123,7 @@ impl ConnectionPool {
         }
     }
 
-    fn add(&self, key: PoolKey, stream: Stream) {
+    pub(crate) fn add(&self, key: &PoolKey, stream: Stream) {
         if self.noop() {
             return;
         }
@@ -143,7 +143,7 @@ impl ConnectionPool {
                         streams.len(),
                         stream
                     );
-                    remove_first_match(&mut inner.lru, &key)
+                    remove_first_match(&mut inner.lru, key)
                         .expect("invariant failed: key in recycle but not in lru");
                 }
             }
@@ -151,7 +151,7 @@ impl ConnectionPool {
                 vacant_entry.insert(vec![stream].into());
             }
         }
-        inner.lru.push_back(key);
+        inner.lru.push_back(key.clone());
         if inner.lru.len() > self.max_idle_connections {
             drop(inner);
             self.remove_oldest()
@@ -187,7 +187,7 @@ impl ConnectionPool {
 }
 
 #[derive(PartialEq, Clone, Eq, Hash)]
-struct PoolKey {
+pub(crate) struct PoolKey {
     scheme: String,
     hostname: String,
     port: Option<u16>,
@@ -217,43 +217,70 @@ impl PoolKey {
             proxy,
         }
     }
+
+    pub(crate) fn from_parts(scheme: &str, hostname: &str, port: u16) -> Self {
+        PoolKey {
+            scheme: scheme.to_string(),
+            hostname: hostname.to_string(),
+            port: Some(port),
+            proxy: None,
+        }
+    }
 }
 
-/// Read wrapper that returns the stream to the pool once the
+#[derive(Clone, Debug)]
+pub(crate) struct PoolReturner {
+    // We store a weak reference to an agent state here to avoid creating
+    // a reference loop, since AgentState contains a ConnectionPool, which
+    // contains Streams, which contain PoolReturners.
+    inner: Option<(std::sync::Weak<AgentState>, PoolKey)>,
+}
+
+impl PoolReturner {
+    /// A PoolReturner that returns to the given Agent's Pool.
+    pub(crate) fn new(agent: &Agent, pool_key: PoolKey) -> Self {
+        Self {
+            inner: Some((agent.weak_state(), pool_key)),
+        }
+    }
+
+    /// A PoolReturner that does nothing
+    pub(crate) fn none() -> Self {
+        Self { inner: None }
+    }
+
+    pub(crate) fn return_to_pool(&self, stream: Stream) {
+        if let Some((weak_state, pool_key)) = &self.inner {
+            if let Some(state) = weak_state.upgrade() {
+                state.pool.add(pool_key, stream);
+            }
+        }
+    }
+}
+
+/// Read wrapper that returns a stream to the pool once the
 /// read is exhausted (reached a 0).
 ///
 /// *Internal API*
 pub(crate) struct PoolReturnRead<R: Read + Sized + Into<Stream>> {
-    // unit that contains the agent where we want to return the reader.
-    unit: Option<Box<Unit>>,
-    // wrapped reader around the same stream
+    // wrapped reader around the same stream. It's an Option because we `take()` it
+    // upon returning the stream to the Agent.
     reader: Option<R>,
 }
 
 impl<R: Read + Sized + Into<Stream>> PoolReturnRead<R> {
-    pub fn new(unit: Option<Box<Unit>>, reader: R) -> Self {
+    pub fn new(reader: R) -> Self {
         PoolReturnRead {
-            unit,
             reader: Some(reader),
         }
     }
 
     fn return_connection(&mut self) -> io::Result<()> {
         // guard we only do this once.
-        if let (Some(unit), Some(reader)) = (self.unit.take(), self.reader.take()) {
+        if let Some(reader) = self.reader.take() {
             // bring back stream here to either go into pool or dealloc
-            let mut stream = reader.into();
-            if !stream.is_poolable() {
-                // just let it deallocate
-                return Ok(());
-            }
-
-            // ensure stream can be reused
-            stream.reset()?;
-
-            // insert back into pool
-            let key = PoolKey::new(&unit.url, unit.agent.config.proxy.clone());
-            unit.agent.state.pool.add(key, stream);
+            let stream: Stream = reader.into();
+            stream.return_to_pool()?;
         }
 
         Ok(())
@@ -281,7 +308,43 @@ impl<R: Read + Sized + Into<Stream>> Read for PoolReturnRead<R> {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+
+    use crate::stream::{remote_addr_for_test, Stream};
+    use crate::ReadWrite;
+
     use super::*;
+
+    #[derive(Debug)]
+    struct NoopStream;
+
+    impl NoopStream {
+        fn stream(pool_returner: PoolReturner) -> Stream {
+            Stream::new(NoopStream, remote_addr_for_test(), pool_returner)
+        }
+    }
+
+    impl Read for NoopStream {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            Ok(buf.len())
+        }
+    }
+
+    impl std::io::Write for NoopStream {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl ReadWrite for NoopStream {
+        fn socket(&self) -> Option<&std::net::TcpStream> {
+            None
+        }
+    }
 
     #[test]
     fn poolkey_new() {
@@ -303,7 +366,7 @@ mod tests {
             proxy: None,
         });
         for key in poolkeys.clone() {
-            pool.add(key, Stream::from_vec(vec![]))
+            pool.add(&key, NoopStream::stream(PoolReturner::none()));
         }
         assert_eq!(pool.len(), pool.max_idle_connections);
 
@@ -328,7 +391,7 @@ mod tests {
         };
 
         for _ in 0..pool.max_idle_connections_per_host * 2 {
-            pool.add(poolkey.clone(), Stream::from_vec(vec![]))
+            pool.add(&poolkey, NoopStream::stream(PoolReturner::none()))
         }
         assert_eq!(pool.len(), pool.max_idle_connections_per_host);
 
@@ -345,23 +408,88 @@ mod tests {
         // Each insertion should result in an additional entry in the pool.
         let pool = ConnectionPool::new_with_limits(10, 1);
         let url = Url::parse("zzz:///example.com").unwrap();
+        let pool_key = PoolKey::new(&url, None);
 
-        pool.add(PoolKey::new(&url, None), Stream::from_vec(vec![]));
+        pool.add(&pool_key, NoopStream::stream(PoolReturner::none()));
         assert_eq!(pool.len(), 1);
 
-        pool.add(
-            PoolKey::new(&url, Some(Proxy::new("localhost:9999").unwrap())),
-            Stream::from_vec(vec![]),
-        );
+        let pool_key = PoolKey::new(&url, Some(Proxy::new("localhost:9999").unwrap()));
+
+        pool.add(&pool_key, NoopStream::stream(PoolReturner::none()));
         assert_eq!(pool.len(), 2);
 
-        pool.add(
-            PoolKey::new(
-                &url,
-                Some(Proxy::new("user:password@localhost:9999").unwrap()),
-            ),
-            Stream::from_vec(vec![]),
+        let pool_key = PoolKey::new(
+            &url,
+            Some(Proxy::new("user:password@localhost:9999").unwrap()),
         );
+
+        pool.add(&pool_key, NoopStream::stream(PoolReturner::none()));
         assert_eq!(pool.len(), 3);
+    }
+
+    // Test that a stream gets returned to the pool if it was wrapped in a LimitedRead, and
+    // user reads the exact right number of bytes (but never gets a read of 0 bytes).
+    #[test]
+    fn read_exact() {
+        use crate::response::LimitedRead;
+
+        let url = Url::parse("https:///example.com").unwrap();
+
+        let mut out_buf = [0u8; 500];
+
+        let agent = Agent::new();
+        let pool_key = PoolKey::new(&url, None);
+        let stream = NoopStream::stream(PoolReturner::new(&agent, pool_key));
+        let mut limited_read = LimitedRead::new(stream, std::num::NonZeroUsize::new(500).unwrap());
+
+        limited_read.read_exact(&mut out_buf).unwrap();
+
+        assert_eq!(agent.state.pool.len(), 1);
+    }
+
+    // Test that a stream gets returned to the pool if it is gzip encoded and the gzip
+    // decoder reads the exact amount from a chunked stream, not past the 0. This
+    // happens because gzip has built-in knowledge of the length to read.
+    #[test]
+    #[cfg(feature = "gzip")]
+    fn read_exact_chunked_gzip() {
+        use crate::response::Compression;
+        use std::io::Cursor;
+
+        let gz_body = vec![
+            b'E', b'\r', b'\n', // 14 first chunk
+            0x1F, 0x8B, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x03, 0xCB, 0x48, 0xCD, 0xC9,
+            b'\r', b'\n', //
+            b'E', b'\r', b'\n', // 14 second chunk
+            0xC9, 0x57, 0x28, 0xCF, 0x2F, 0xCA, 0x49, 0x51, 0xC8, 0x18, 0xBC, 0x6C, 0x00, 0xA5,
+            b'\r', b'\n', //
+            b'7', b'\r', b'\n', // 7 third chunk
+            0x5C, 0x7C, 0xEF, 0xA7, 0x00, 0x00, 0x00, //
+            b'\r', b'\n', //
+            // end
+            b'0', b'\r', b'\n', //
+            b'\r', b'\n', //
+        ];
+
+        let agent = Agent::new();
+        assert_eq!(agent.state.pool.len(), 0);
+
+        let ro = crate::test::TestStream::new(Cursor::new(gz_body), std::io::sink());
+        let stream = Stream::new(
+            ro,
+            "1.1.1.1:4343".parse().unwrap(),
+            PoolReturner::new(&agent, PoolKey::from_parts("http", "1.1.1.1", 8080)),
+        );
+
+        let chunked = crate::chunked::Decoder::new(stream);
+        let pool_return_read: Box<(dyn Read + Send + Sync + 'static)> =
+            Box::new(PoolReturnRead::new(chunked));
+
+        let compression = Compression::Gzip;
+        let mut stream = compression.wrap_reader(pool_return_read);
+
+        io::copy(&mut stream, &mut io::sink()).unwrap();
+
+        assert_eq!(agent.state.pool.len(), 1);
     }
 }

@@ -212,7 +212,7 @@ impl Display for Error {
         match self {
             Error::Status(status, response) => {
                 write!(f, "{}: status code {}", response.get_url(), status)?;
-                if let Some(original) = response.history.get(0) {
+                if let Some(original) = response.history.first() {
                     write!(f, " (redirected from {})", original)?;
                 }
             }
@@ -328,7 +328,7 @@ impl Error {
 }
 
 /// One of the types of error the can occur when processing a Request.
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ErrorKind {
     /// The url could not be understood.
     InvalidUrl,
@@ -336,6 +336,8 @@ pub enum ErrorKind {
     UnknownScheme,
     /// DNS lookup failed.
     Dns,
+    /// Insecure request attempted with https only set
+    InsecureRequestHttpsOnly,
     /// Connection to server failed.
     ConnectionFailed,
     /// Too many redirects.
@@ -402,6 +404,9 @@ impl fmt::Display for ErrorKind {
             ErrorKind::InvalidUrl => write!(f, "Bad URL"),
             ErrorKind::UnknownScheme => write!(f, "Unknown Scheme"),
             ErrorKind::Dns => write!(f, "Dns Failed"),
+            ErrorKind::InsecureRequestHttpsOnly => {
+                write!(f, "Insecure request attempted with https_only set")
+            }
             ErrorKind::ConnectionFailed => write!(f, "Connection Failed"),
             ErrorKind::TooManyRedirects => write!(f, "Too Many Redirects"),
             ErrorKind::BadStatus => write!(f, "Bad Status"),

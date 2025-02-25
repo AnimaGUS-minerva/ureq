@@ -1,4 +1,5 @@
 use std::convert::TryFrom;
+use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
@@ -26,11 +27,11 @@ fn is_close_notify(e: &std::io::Error) -> bool {
     false
 }
 
-struct RustlsStream(rustls::StreamOwned<rustls::ClientConnection, TcpStream>);
+struct RustlsStream(rustls::StreamOwned<rustls::ClientConnection, Box<dyn ReadWrite>>);
 
 impl ReadWrite for RustlsStream {
     fn socket(&self) -> Option<&TcpStream> {
-        Some(self.0.get_ref())
+        self.0.get_ref().socket()
     }
 }
 
@@ -60,53 +61,56 @@ impl Write for RustlsStream {
 
 #[cfg(feature = "native-certs")]
 fn root_certs() -> rustls::RootCertStore {
-    let mut root_store = rustls::RootCertStore::empty();
+    use log::error;
 
-    let certs = rustls_native_certs::load_native_certs().expect("Could not load platform certs");
-
-    for cert in certs {
-        // Repackage the certificate DER bytes.
-        let rustls_cert = rustls::Certificate(cert.0);
-
-        root_store
-            .add(&rustls_cert)
-            .expect("Failed to add native certificate too root store");
+    let mut root_cert_store = rustls::RootCertStore::empty();
+    let native_certs = rustls_native_certs::load_native_certs().unwrap_or_else(|e| {
+        error!("loading native certificates: {}", e);
+        vec![]
+    });
+    let (valid_count, invalid_count) =
+        root_cert_store.add_parsable_certificates(native_certs.into_iter().map(|c| c.into()));
+    if valid_count == 0 && invalid_count > 0 {
+        error!(
+            "no valid certificates loaded by rustls-native-certs. all HTTPS requests will fail."
+        );
     }
-
-    root_store
+    root_cert_store
 }
 
 #[cfg(not(feature = "native-certs"))]
 fn root_certs() -> rustls::RootCertStore {
-    let mut root_store = rustls::RootCertStore::empty();
-    root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
-    }));
-    root_store
+    rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    }
 }
 
 impl TlsConnector for Arc<rustls::ClientConfig> {
     fn connect(
         &self,
         dns_name: &str,
-        mut tcp_stream: TcpStream,
+        mut io: Box<dyn ReadWrite>,
     ) -> Result<Box<dyn ReadWrite>, Error> {
-        let sni = rustls::ServerName::try_from(dns_name)
-            .map_err(|e| ErrorKind::Dns.msg(format!("parsing '{}'", dns_name)).src(e))?;
+        let dns_name = if dns_name.starts_with('[') && dns_name.ends_with(']') {
+            // rustls doesn't like ipv6 addresses with brackets
+            &dns_name[1..dns_name.len() - 1]
+        } else {
+            dns_name
+        };
+
+        let sni = rustls_pki_types::ServerName::try_from(dns_name)
+            .map_err(|e| ErrorKind::Dns.msg(format!("parsing '{}'", dns_name)).src(e))?
+            .to_owned();
 
         let mut sess = rustls::ClientConnection::new(self.clone(), sni)
             .map_err(|e| ErrorKind::Io.msg("tls connection creation failed").src(e))?;
 
-        sess.complete_io(&mut tcp_stream).map_err(|e| {
+        sess.complete_io(&mut io).map_err(|e| {
             ErrorKind::ConnectionFailed
                 .msg("tls connection init failed")
                 .src(e)
         })?;
-        let stream = rustls::StreamOwned::new(sess, tcp_stream);
+        let stream = rustls::StreamOwned::new(sess, io);
 
         Ok(Box::new(RustlsStream(stream)))
     }
@@ -114,11 +118,25 @@ impl TlsConnector for Arc<rustls::ClientConfig> {
 
 pub fn default_tls_config() -> Arc<dyn TlsConnector> {
     static TLS_CONF: Lazy<Arc<dyn TlsConnector>> = Lazy::new(|| {
-        let config = rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(root_certs())
-            .with_no_client_auth();
+        // `ureq` prefers to use `*ring*` by default. It unconditionally activates the Rustls
+        // feature for this backend, so we know `rustls::crypto::ring::default_provider()` is
+        // available. We use `builder_with_provider()` instead of `builder()` here to avoid the
+        // risk that the rustls features are ambiguous and no process wide default crypto provider
+        // has been set yet.
+        let config = rustls::ClientConfig::builder_with_provider(
+            rustls::crypto::ring::default_provider().into(),
+        )
+        .with_protocol_versions(&[&rustls::version::TLS12, &rustls::version::TLS13])
+        .unwrap() // Safety: the *ring* default provider always configures ciphersuites compatible w/ both TLS 1.2 & TLS 1.3
+        .with_root_certificates(root_certs())
+        .with_no_client_auth();
         Arc::new(Arc::new(config))
     });
     TLS_CONF.clone()
+}
+
+impl fmt::Debug for RustlsStream {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("RustlsStream").finish()
+    }
 }
