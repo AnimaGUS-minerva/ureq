@@ -174,12 +174,12 @@ use ureq_proto::BodyMode;
 /// ```
 pub trait AsSendBody: Private {
     #[doc(hidden)]
-    fn as_body(&mut self) -> SendBody;
+    fn as_body(&mut self) -> SendBody<'_>;
 }
 
 impl<'a> Private for SendBody<'a> {}
 impl<'a> AsSendBody for SendBody<'a> {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         SendBody {
             inner: match &mut self.inner {
                 BodyInner::None => BodyInner::None,
@@ -221,77 +221,77 @@ impl<'a> BodyInner<'a> {
 
 impl Private for &[u8] {}
 impl AsSendBody for &[u8] {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::ByteSlice(self).into()
     }
 }
 
 impl Private for &str {}
 impl AsSendBody for &str {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::ByteSlice((*self).as_ref()).into()
     }
 }
 
 impl Private for String {}
 impl AsSendBody for String {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::ByteSlice((*self).as_ref()).into()
     }
 }
 
 impl Private for Vec<u8> {}
 impl AsSendBody for Vec<u8> {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::ByteSlice((*self).as_ref()).into()
     }
 }
 
 impl Private for &String {}
 impl AsSendBody for &String {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::ByteSlice((*self).as_ref()).into()
     }
 }
 
 impl Private for &Vec<u8> {}
 impl AsSendBody for &Vec<u8> {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::ByteSlice((*self).as_ref()).into()
     }
 }
 
 impl Private for &File {}
 impl AsSendBody for &File {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::Reader(self).into()
     }
 }
 
 impl Private for &TcpStream {}
 impl AsSendBody for &TcpStream {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::Reader(self).into()
     }
 }
 
 impl Private for File {}
 impl AsSendBody for File {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::Reader(self).into()
     }
 }
 
 impl Private for TcpStream {}
 impl AsSendBody for TcpStream {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::Reader(self).into()
     }
 }
 
 impl Private for Stdin {}
 impl AsSendBody for Stdin {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::Reader(self).into()
     }
 }
@@ -306,7 +306,7 @@ use std::os::unix::net::UnixStream;
 impl Private for UnixStream {}
 #[cfg(target_family = "unix")]
 impl AsSendBody for UnixStream {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::Reader(self).into()
     }
 }
@@ -322,28 +322,28 @@ impl<'a> From<BodyInner<'a>> for SendBody<'a> {
 
 impl Private for Body {}
 impl AsSendBody for Body {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::Body(Box::new(self.as_reader())).into()
     }
 }
 
 impl Private for Response<Body> {}
 impl AsSendBody for Response<Body> {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::Body(Box::new(self.body_mut().as_reader())).into()
     }
 }
 
 impl<const N: usize> Private for &[u8; N] {}
 impl<const N: usize> AsSendBody for &[u8; N] {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::ByteSlice(self.as_slice()).into()
     }
 }
 
 impl Private for () {}
 impl AsSendBody for () {
-    fn as_body(&mut self) -> SendBody {
+    fn as_body(&mut self) -> SendBody<'_> {
         BodyInner::None.into()
     }
 }

@@ -226,7 +226,7 @@ impl Body {
     ///     .read_to_end(&mut bytes)?;
     /// # Ok::<_, ureq::Error>(())
     /// ```
-    pub fn as_reader(&mut self) -> BodyReader {
+    pub fn as_reader(&mut self) -> BodyReader<'_> {
         self.with_config().reader()
     }
 
@@ -397,7 +397,7 @@ impl Body {
     ///     .reader();
     /// # Ok::<_, ureq::Error>(())
     /// ```
-    pub fn with_config(&mut self) -> BodyWithConfig {
+    pub fn with_config(&mut self) -> BodyWithConfig<'_> {
         let handler = (&mut self.source).into();
         BodyWithConfig::new(handler, self.info.clone())
     }

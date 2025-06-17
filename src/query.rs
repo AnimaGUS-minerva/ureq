@@ -48,12 +48,12 @@ enum Source<'a> {
 }
 
 /// Percent-encode a string using the ENCODED_IN_QUERY set.
-pub fn url_enc(i: &str) -> Cow<str> {
+pub fn url_enc(i: &str) -> Cow<'_, str> {
     utf8_percent_encode(i, ENCODED_IN_QUERY).into()
 }
 
 /// Percent-encode a string using the ENCODED_IN_QUERY set, but replace encoded `%20` with `+`.
-pub fn form_url_enc(i: &str) -> Cow<str> {
+pub fn form_url_enc(i: &str) -> Cow<'_,str> {
     let mut iter = utf8_percent_encode(i, ENCODED_IN_QUERY).map(|part| match part {
         "%20" => "+",
         _ => part,
