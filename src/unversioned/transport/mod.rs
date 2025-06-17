@@ -39,7 +39,7 @@ use self::time::Instant;
 mod buf;
 pub use buf::{Buffers, LazyBuffers};
 
-mod tcp;
+pub mod tcp;
 
 mod io;
 pub use io::TransportAdapter;
