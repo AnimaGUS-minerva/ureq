@@ -22,6 +22,7 @@ use super::TlsConfig;
 /// Requires feature flag **rustls**.
 #[derive(Default)]
 pub struct RustlsConnector {
+    userconfig: Option<Arc<ClientConfig>>,
     config: OnceLock<CachedRustlConfig>,
 }
 
@@ -91,8 +92,42 @@ impl<In: Transport> Connector<In> for RustlsConnector {
 }
 
 impl RustlsConnector {
+    /// Set the Rustls ClientConfig explicitely
+    ///
+    /// By default the RustlsConnector creates and caches an appropriate ClientConfig
+    /// for use.  Not every option is available, so some users might want to create
+    /// their own configuration.
+    /// If it is set, then it used instead of looking at any of the caches.
+    /// It is not global, so it only applies to connections which are created explicite
+    /// usingn a TlsConfigBuilder(TlsProvider::Rustls).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rustls::version::{TLS12, TLS13};
+    /// use std::sync::Arc;
+    /// use ureq::tls::TLsProvider;
+    ///
+    /// // This is how we narrow down the allowed TLS versions for rustls.
+    /// let protocol_versions = &[&TLS12, &TLS13];
+    /// let rustls_config = Arc::new(rustls::ClientConfig::builder_with_protocol_versions(protocol_versions)
+    ///    .dangerous());
+    /// // could add    .with_custom_certificate_verifier(verifier.clone());
+    /// 
+    /// let ureq_config = ureq::tls::TlsConfigBuilder::provider(TlsProvider::Rustls)
+    ///     .unversioned_set_user_config(rustls_config).unwrap();
+    /// ```
+    pub fn unversioned_set_user_config(&mut self, cc: Arc<ClientConfig>) {
+        self.userconfig = Some(cc);
+    }
+
     fn get_cached_config(&self, details: &ConnectionDetails) -> Arc<ClientConfig> {
         let tls_config = details.config.tls_config();
+
+        /* shortcut if usr provided the configuration */
+        if let Some(cc) = &self.userconfig{
+            return cc.clone();
+        }
 
         if details.request_level {
             // If the TlsConfig is request level, it is not allowed to
